@@ -1,0 +1,14 @@
+@ApiGraphActivator_HostAddress = http://localhost:5236
+
+GET {{ApiGraphActivator_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
+
+POST {{ApiGraphActivator_HostAddress}}/loadcontent/
+Accept: application/json
+
+{
+  "tenant_id": "5174ceb7-3102-4916-9c26-eb94f327f56d"
+}
+###
