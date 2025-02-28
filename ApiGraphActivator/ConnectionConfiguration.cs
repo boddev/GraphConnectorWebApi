@@ -35,7 +35,6 @@ static class ConnectionConfiguration
         Id = "secedgardata",
         Name = "SecEdgarData",
         Description = "Filings from the SEC EDGAR database",
-        // Uncomment and configure the SearchSettings if needed
         //SearchSettings = new()
         //{
         //  SearchResultTemplates = new() {
@@ -52,7 +51,6 @@ static class ConnectionConfiguration
     }
   }
 
-  // Define a public static property to get the Schema object
   public static Schema Schema
   {
     get
