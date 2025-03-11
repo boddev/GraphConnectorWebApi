@@ -31,7 +31,7 @@ public static class EdgarService
     static EdgarService()
     {
         _client = new HttpClient();
-        _client.DefaultRequestHeaders.Add("User-Agent", "Microsoft/1.0 (<<INSERT EMAIL HERE>>)");
+        _client.DefaultRequestHeaders.Add("User-Agent", $"Microsoft/1.0 ({Environment.GetEnvironmentVariable("EmailAddress")})");
         _logger?.LogInformation("HttpClient initialized with User-Agent header.");
 
         connectionString = Environment.GetEnvironmentVariable("TableStorage");
@@ -201,7 +201,7 @@ public static class EdgarService
                 var url = entity.GetString("Url");
 
                 // Check if the form is one of the specified types
-                if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K"))
+                //if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K"))
                 {
                     itemId = $"{companyName}_{form}_{filingDate.ToString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
                     companyField = companyName;

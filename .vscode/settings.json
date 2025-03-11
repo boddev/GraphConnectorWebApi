@@ -1,0 +1,5 @@
+{
+    "appService.preDeployTask": "publish-release",
+    "appService.deploySubpath": "ApiGraphActivator\\bin\\Release\\net8.0\\publish",
+    "appService.defaultWebAppToDeploy": "undefined/subscriptions/46e6c85f-b40d-4b45-b607-858fab366450/resourceGroups/bod-graph-connectors/providers/Microsoft.Web/sites/bod-edgar-gc"
+}
