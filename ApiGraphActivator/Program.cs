@@ -29,6 +29,10 @@ app.UseHttpsRedirection();
 var logger = app.Services.GetRequiredService<LoggingService>();
 EdgarService.InitializeLogger(logger);
 
+app.MapGet("/", () => "Hello World!")
+    .WithName("GetHelloWorld")
+    .WithOpenApi();
+
 app.MapPost("/grantPermissions", async (HttpContext context) =>
 {
     using var reader = new StreamReader(context.Request.Body);

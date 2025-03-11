@@ -401,3 +401,4 @@ FodyWeavers.xsd
 ApiGraphActivator/Properties/launchSettings.json
 ApiGraphActivator/appsettings.Development.json
 ApiGraphActivator/appsettings.json
+ApiGraphActivator/ApiGraphActivator.http
