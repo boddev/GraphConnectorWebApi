@@ -35,6 +35,7 @@ app.UseHttpsRedirection();
 var logger = app.Services.GetRequiredService<ILogger<Program>>();
 logger.LogInformation("Application started and Application Insights is configured.");
 EdgarService.InitializeLogger(logger);
+ConnectionService.InitializeLogger(logger);
 
 app.MapGet("/", () => "Hello World!")
     .WithName("GetHelloWorld")
