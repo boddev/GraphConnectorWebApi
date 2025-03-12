@@ -9,6 +9,11 @@ builder.Services.AddSwaggerGen();
 
 // Add Application Insights telemetry
 builder.Services.AddApplicationInsightsTelemetry();
+builder.Services.AddLogging(loggingBuilder =>
+{
+    loggingBuilder.AddConsole();
+    loggingBuilder.AddDebug();
+});
 
 // Register the custom logging service
 builder.Services.AddSingleton<LoggingService>();
@@ -26,7 +31,9 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var logger = app.Services.GetRequiredService<LoggingService>();
+//var logger = app.Services.GetRequiredService<LoggingService>();
+var logger = app.Services.GetRequiredService<ILogger<Program>>();
+logger.LogInformation("Application started and Application Insights is configured.");
 EdgarService.InitializeLogger(logger);
 
 app.MapGet("/", () => "Hello World!")

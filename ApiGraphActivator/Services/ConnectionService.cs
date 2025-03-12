@@ -1,25 +1,26 @@
 // Define a static class named ConnectionService
 static class ConnectionService
 {
+  public static ILogger logger;
   // Define an asynchronous static method named CreateConnection
   async static Task CreateConnection()
   {
     // Output a message to the console indicating the start of the connection creation process
-    Console.Write("Creating connection...");
+    logger.LogInformation("Creating connection...");
 
     // Await the asynchronous operation of posting a new connection to the GraphService client
     await GraphService.Client.External.Connections
       .PostAsync(ConnectionConfiguration.ExternalConnection);
 
     // Output a message to the console indicating the completion of the connection creation process
-    Console.WriteLine("DONE");
+    logger.LogInformation("DONE");
   }
 
   // Define an asynchronous static method named CreateSchema
   async static Task CreateSchema()
   {
     // Output a message to the console indicating the start of the schema creation process
-    Console.WriteLine("Creating schema...");
+    logger.LogInformation("Creating schema...");
 
     // Await the asynchronous operation of patching the schema for the specified connection in the GraphService client
     await GraphService.Client.External
@@ -28,7 +29,7 @@ static class ConnectionService
       .PatchAsync(ConnectionConfiguration.Schema);
 
     // Output a message to the console indicating the completion of the schema creation process
-    Console.WriteLine("DONE");
+    logger.LogInformation("DONE");
   }
 
   // Define a public asynchronous static method named ProvisionConnection
@@ -46,5 +47,10 @@ static class ConnectionService
       // Catch any exceptions that occur during the connection or schema creation process and output the exception message to the console
       Console.WriteLine(ex.Message);
     }
+  }
+
+  public static void InitializeLogger(ILogger log)
+  {
+    logger = log;
   }
 }

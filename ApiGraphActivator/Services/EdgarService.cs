@@ -11,7 +11,7 @@ public static class EdgarService
 {
     // Define static members for HttpClient, LoggingService, TableClient, and various configuration strings
     private static readonly HttpClient _client;
-    private static LoggingService? _logger;
+    private static ILogger? _logger;
     private static TableClient? _tableClient;
     static string? connectionString;
     static string? companyName;
@@ -343,7 +343,7 @@ public static class EdgarService
     }
 
     // Define a method to initialize the logger
-    public static void InitializeLogger(LoggingService logger)
+    public static void InitializeLogger(ILogger logger)
     {
         _logger = logger;
     }
