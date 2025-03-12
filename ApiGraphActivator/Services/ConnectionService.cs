@@ -1,4 +1,6 @@
 // Define a static class named ConnectionService
+using Microsoft.Graph.Models.ExternalConnectors;
+
 static class ConnectionService
 {
   public static ILogger logger;
@@ -8,9 +10,10 @@ static class ConnectionService
     // Output a message to the console indicating the start of the connection creation process
     logger.LogInformation("Creating connection...");
 
+    ExternalConnection connection = ConnectionConfiguration.ExternalConnection;
+
     // Await the asynchronous operation of posting a new connection to the GraphService client
-    await GraphService.Client.External.Connections
-      .PostAsync(ConnectionConfiguration.ExternalConnection);
+    var result = await GraphService.Client.External.Connections.PostAsync(connection);
 
     // Output a message to the console indicating the completion of the connection creation process
     logger.LogInformation("DONE");
@@ -23,10 +26,11 @@ static class ConnectionService
     logger.LogInformation("Creating schema...");
 
     // Await the asynchronous operation of patching the schema for the specified connection in the GraphService client
+    Schema schema = ConnectionConfiguration.Schema;
     await GraphService.Client.External
       .Connections[ConnectionConfiguration.ExternalConnection.Id]
       .Schema
-      .PatchAsync(ConnectionConfiguration.Schema);
+      .PatchAsync(schema);
 
     // Output a message to the console indicating the completion of the schema creation process
     logger.LogInformation("DONE");
@@ -45,7 +49,7 @@ static class ConnectionService
     catch (Exception ex)
     {
       // Catch any exceptions that occur during the connection or schema creation process and output the exception message to the console
-      Console.WriteLine(ex.Message);
+      logger.LogError(ex.Message);
     }
   }
 

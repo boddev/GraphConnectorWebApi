@@ -203,7 +203,7 @@ public static class EdgarService
                 // Check if the form is one of the specified types
                 //if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K"))
                 {
-                    itemId = $"{companyName}_{form}_{filingDate.ToString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
+                    itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
                     companyField = companyName;
                     titleField = $"{companyName} {form} {reportDate}";
                     reportDateField = filingDate;
@@ -218,7 +218,7 @@ public static class EdgarService
                     }
                     _logger.LogInformation($"Fetched {urlField}");
 
-                    EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.ToString(), formField, retVal);
+                    EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, retVal);
                     externalItemData.Add(edgarExternalItem);
                 }
             }

@@ -32,21 +32,9 @@ static class ConnectionConfiguration
       // Return a new ExternalConnection object with predefined properties
       return new ExternalConnection
       {
-        Id = "secedgardata",
-        Name = "SecEdgarData",
-        Description = "Filings from the SEC EDGAR database",
-        //SearchSettings = new()
-        //{
-        //  SearchResultTemplates = new() {
-        //    new() {
-        //      Id = "secedgardata",
-        //      Priority = 1,
-        //      Layout = new Json {
-        //        AdditionalData = Layout
-        //      }
-        //    }
-        //  }
-        //}
+        Id = "secedgardatatest1",
+        Name = "SecEdgarDatatest1",
+        Description = "Filings from the SEC EDGAR database"
       };
     }
   }
@@ -106,8 +94,6 @@ static class ConnectionConfiguration
             Name = "DateFiled",
             Type = PropertyType.DateTime,
             IsRetrievable = true,
-            IsSearchable = true,
-            IsQueryable = true,
             Labels = new() { Label.CreatedDateTime }
           }
         }

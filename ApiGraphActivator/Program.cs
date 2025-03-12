@@ -69,7 +69,14 @@ app.MapPost("/provisionconnection", async (HttpContext context) =>
     logger.LogInformation("Provisioning connection for tenant ID: {TenantId}", tenantId);
 
     // Call the ProvisionConnection method with the tenant ID
-    await ConnectionService.ProvisionConnection();
+    try{
+        await ConnectionService.ProvisionConnection();
+        await context.Response.WriteAsync("Connection provisioned successfully.");
+    } catch (Exception ex) {
+        // Log the exception message
+        logger.LogError("Error provisioning connection: {Message}", ex.Message);
+        await context.Response.WriteAsync($"Error provisioning connection: {ex.Message}");
+    }
 })
 .WithName("provisionconnection")
 .WithOpenApi();

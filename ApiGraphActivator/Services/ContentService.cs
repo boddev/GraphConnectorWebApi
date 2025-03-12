@@ -9,6 +9,8 @@ static class ContentService
   // Define a static list to hold EdgarExternalItem objects
   static List<EdgarExternalItem> content;
 
+  static ILogger logger = ConnectionService.logger;
+
   // Define a static list to hold ExternalItem objects
   static List<ExternalItem> items = new();
 
@@ -26,6 +28,7 @@ static class ContentService
     ExternalItem exItem = new ExternalItem
     {
       Id = EdgarService.itemId, // Set the Id property using the EdgarService itemId
+      
       Properties = new()
       {
         // Set the AdditionalData dictionary with various properties from the EdgarExternalItem
@@ -49,12 +52,13 @@ static class ContentService
           // Set the Access Control List (ACL) for the ExternalItem
           new()
           {
-            Type = AclType.Group,
-            Value = "EdgarDataUsers",
+            Type = AclType.Everyone,
+            Value = "Everyone",
             AccessType = AccessType.Grant
           }
         }
     };
+
 
     // Add the created ExternalItem to the items list
     items.Add(exItem);
@@ -67,27 +71,30 @@ static class ContentService
     foreach (var item in items)
     {
       // Output a message to the console indicating the start of the item loading process
-      Console.Write(string.Format("Loading item {0}...", item.Id));
+      logger.LogInformation(string.Format("Loading item {0}...", item.Id));
       try
       {
+        var connectionId = ConnectionConfiguration.ExternalConnection.Id!;
+        var anItem = item;
         // Await the asynchronous operation of putting the item into the GraphService client
         await GraphService.Client.External
           .Connections[Uri.EscapeDataString(ConnectionConfiguration.ExternalConnection.Id!)]
           .Items[item.Id]
           .PutAsync(item);
         // Output a message to the console indicating the completion of the item loading process
-        Console.WriteLine("DONE");
+        logger.LogInformation($"{item.Id} completed.");
 
         // Get the URL from the item's AdditionalData dictionary
-        string url = (string)item.AdditionalData["Url"];
+        string url = (string)item.Properties.AdditionalData["Url"];
         // Await the asynchronous operation of updating the processed item in the EdgarService
         await EdgarService.UpdateProcessedItem(url);
+        logger.LogInformation($"ProcessedForms table updated for {url}.");
       }
       catch (Exception ex)
       {
         // Output an error message to the console if an exception occurs
-        Console.WriteLine("ERROR");
-        Console.WriteLine(ex.Message);
+        logger.LogError("ERROR");
+        logger.LogError(ex.Message);
       }
     }
   }
