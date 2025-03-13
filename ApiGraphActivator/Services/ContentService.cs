@@ -61,7 +61,7 @@ static class ContentService
 
     await Load(exItem);
     // Add the created ExternalItem to the items list
-    items.Add(exItem);
+    //items.Add(exItem);
   }
 
   // Define an asynchronous static method named Load

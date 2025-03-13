@@ -73,10 +73,10 @@ public static class EdgarService
                 filingDocuments = await GetDocument(filingJson).ConfigureAwait(false);
                 
                 // Iterate over each item in the content list and transform it
-                foreach (var item in filingDocuments)
-                {
-                    ContentService.Transform(item);
-                }
+                // foreach (var item in filingDocuments)
+                // {
+                //     ContentService.Transform(item);
+                // }
             }
         }
         catch (Exception ex)
@@ -225,7 +225,8 @@ public static class EdgarService
                     _logger.LogInformation($"Fetched {urlField}");
 
                     EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, retVal);
-                    externalItemData.Add(edgarExternalItem);
+                    ContentService.Transform(edgarExternalItem);
+                    //externalItemData.Add(edgarExternalItem);
                 }
             }
         }
