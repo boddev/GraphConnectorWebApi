@@ -305,9 +305,9 @@ public static class EdgarService
     private static async Task<string> FetchWithExponentialBackoff(string url)
     {
         int maxRetries = 5;
-        int delay = 1000; // Initial delay in milliseconds
+        int delay = 5000; // Initial delay in milliseconds
 
-        for (int retry = 0; retry < maxRetries; retry++)
+        for (int retry = 0; retry <= maxRetries; retry++)
         {
             try
             {
@@ -316,26 +316,33 @@ public static class EdgarService
                 {
                     return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
                 }
-                else if (response.StatusCode == (System.Net.HttpStatusCode)429)
+                else if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
                 {
-                    _logger.LogWarning($"HTTP 429 Too Many Requests. Retrying in {delay}ms...");
-                    await Task.Delay(delay).ConfigureAwait(false);
-                    delay *= 2; // Exponential backoff
+
+                    if (response.Headers.TryGetValues("Retry-After", out var values))
+                    {
+                        string retryAfter = values.First();
+                        _logger.LogInformation($"Rate limit exceeded. Retrying after {retryAfter} seconds.");
+                        int retryAfterSeconds = int.Parse(retryAfter);
+                        await Task.Delay(retryAfterSeconds * 1000);
+                    }
+                    else
+                    {
+                        _logger.LogWarning($"HTTP 429 Too Many Requests. Retrying in {delay}ms...");
+                        await Task.Delay(delay);
+                        delay *= 2; // Exponential backoff
+                    }
                 }
                 else
                 {
                     response.EnsureSuccessStatusCode();
                 }
 
-                if (retry == maxRetries - 1)
-                {
-                    // Write to URL to storage table
-                }
             }
             catch (Exception ex)
             {
                 _logger.LogError($"Error fetching URL {url}: {ex.Message}");
-                if (retry == maxRetries - 1)
+                if (retry == maxRetries )
                 {
                     // Write to storage table
                     _logger.LogInformation($"Max retries reached for URL {url}. Giving up.");
