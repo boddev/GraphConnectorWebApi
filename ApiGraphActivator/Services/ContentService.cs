@@ -22,7 +22,7 @@ static class ContentService
   }
 
   // Define a static method named Transform that takes an EdgarExternalItem as a parameter
-  static void Transform(EdgarExternalItem item)
+  public static async void Transform(EdgarExternalItem item)
   {
     // Create a new ExternalItem object and populate its properties
     ExternalItem exItem = new ExternalItem
@@ -59,23 +59,21 @@ static class ContentService
         }
     };
 
-
+    await Load(exItem);
     // Add the created ExternalItem to the items list
     items.Add(exItem);
   }
 
   // Define an asynchronous static method named Load
-  static async Task Load()
+  static async Task Load(ExternalItem item)
   {
     // Iterate over each item in the items list
-    foreach (var item in items)
+    //foreach (var item in items)
     {
       // Output a message to the console indicating the start of the item loading process
       logger.LogInformation(string.Format("Loading item {0}...", item.Id));
       try
       {
-        var connectionId = ConnectionConfiguration.ExternalConnection.Id!;
-        var anItem = item;
         // Await the asynchronous operation of putting the item into the GraphService client
         await GraphService.Client.External
           .Connections[Uri.EscapeDataString(ConnectionConfiguration.ExternalConnection.Id!)]
@@ -105,13 +103,13 @@ static class ContentService
     // Call the Extract method to populate the content list
     await Extract();
 
-    // Iterate over each item in the content list and transform it
-    foreach (var item in content)
-    {
-      Transform(item);
-    }
+    // // Iterate over each item in the content list and transform it
+    // foreach (var item in content)
+    // {
+    //   Transform(item);
+    // }
 
-    // Call the Load method to load the transformed items
-    await Load();
+    // // Call the Load method to load the transformed items
+    // await Load();
   }
 }

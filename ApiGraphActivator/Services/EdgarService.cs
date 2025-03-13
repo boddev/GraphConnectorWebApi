@@ -71,6 +71,12 @@ public static class EdgarService
 
                 string filingJson = await GetCIKFiling().ConfigureAwait(false);
                 filingDocuments = await GetDocument(filingJson).ConfigureAwait(false);
+                
+                // Iterate over each item in the content list and transform it
+                foreach (var item in filingDocuments)
+                {
+                    ContentService.Transform(item);
+                }
             }
         }
         catch (Exception ex)
