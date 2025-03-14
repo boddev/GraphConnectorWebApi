@@ -71,7 +71,7 @@ static class ContentService
     //foreach (var item in items)
     {
       // Output a message to the console indicating the start of the item loading process
-      logger.LogInformation(string.Format("Loading item {0}...", item.Id));
+      logger.LogTrace(string.Format("Loading item {0}...", item.Id));
       try
       {
         // Await the asynchronous operation of putting the item into the GraphService client
@@ -80,13 +80,13 @@ static class ContentService
           .Items[item.Id]
           .PutAsync(item);
         // Output a message to the console indicating the completion of the item loading process
-        logger.LogInformation($"{item.Id} completed.");
+        logger.LogTrace($"{item.Id} completed.");
 
         // Get the URL from the item's AdditionalData dictionary
         string url = (string)item.Properties.AdditionalData["Url"];
         // Await the asynchronous operation of updating the processed item in the EdgarService
         await EdgarService.UpdateProcessedItem(url);
-        logger.LogInformation($"ProcessedForms table updated for {url}.");
+        logger.LogTrace($"ProcessedForms table updated for {url}.");
       }
       catch (Exception ex)
       {

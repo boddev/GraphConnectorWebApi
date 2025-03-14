@@ -32,12 +32,21 @@ public static class EdgarService
     {
         _client = new HttpClient();
         _client.DefaultRequestHeaders.Add("User-Agent", $"Microsoft/1.0 ({Environment.GetEnvironmentVariable("EmailAddress")})");
-        _logger?.LogInformation("HttpClient initialized with User-Agent header.");
+        _logger?.LogTrace("HttpClient initialized with User-Agent header.");
 
         connectionString = Environment.GetEnvironmentVariable("TableStorage");
         companyTableName = Environment.GetEnvironmentVariable("CompanyTableName");
         processedTableName = Environment.GetEnvironmentVariable("ProcessedTableName");
         _tableClient = new TableClient(connectionString, processedTableName);
+    }
+
+    public static bool IsBase64String(string base64)
+    {
+        if (string.IsNullOrEmpty(base64))
+            return false;
+
+        Span<byte> buffer = new Span<byte>(new byte[base64.Length]);
+        return Convert.TryFromBase64String(base64, buffer, out _);
     }
 
     // Define an asynchronous static method to hydrate lookup data from EdgarService
@@ -58,7 +67,7 @@ public static class EdgarService
             // Process the table entities as needed
             foreach (var entity in tableEntities)
             {
-                _logger.LogInformation($"PartitionKey: {entity.PartitionKey}, RowKey: {entity.RowKey}");
+                _logger.LogTrace($"PartitionKey: {entity.PartitionKey}, RowKey: {entity.RowKey}");
                 companyName = entity.GetString("RowKey").Trim();
                 companySymbol = entity.GetString("Symbol").Trim();
                 cikLookup = ExtractCIK(company_tkr_response, companySymbol);
@@ -108,22 +117,22 @@ public static class EdgarService
     {
         if (string.IsNullOrEmpty(cikLookup))
         {
-            _logger.LogInformation($"CIK not populated. Skipping.");
+            _logger.LogTrace($"CIK not populated. Skipping.");
             return "";
         }
         cik = cikLookup;
         cikLookup = cikLookup.PadLeft(10, '0');
-        _logger.LogInformation($"CIK for {companyName}, {companySymbol}: {cikLookup}");
+        _logger.LogTrace($"CIK for {companyName}, {companySymbol}: {cikLookup}");
         if (cikLookup.Equals("Company not found"))
         {
-            _logger.LogInformation($"CIK for {companyName}, {companySymbol} not found. Skipping.");
+            _logger.LogTrace($"CIK for {companyName}, {companySymbol} not found. Skipping.");
             return "";
         }
 
         // Hit API endpoint to get the filings for the CIK retrieved
-        _logger.LogInformation($"Fetching JSON payload for https://data.sec.gov/submissions/CIK{cikLookup}.json");
+        _logger.LogTrace($"Fetching JSON payload for https://data.sec.gov/submissions/CIK{cikLookup}.json");
         var filingString = await _client.GetStringAsync($"https://data.sec.gov/submissions/CIK{cikLookup}.json").ConfigureAwait(false);
-        _logger.LogInformation($"JSON payload for https://data.sec.gov/submissions/CIK{cikLookup}.json retrieved.");
+        _logger.LogTrace($"JSON payload for https://data.sec.gov/submissions/CIK{cikLookup}.json retrieved.");
         return filingString;
     }
 
@@ -183,7 +192,7 @@ public static class EdgarService
                     // Want to log all data available, and only update data that I have gathered
                     try
                     {
-                        _logger?.LogInformation($"Checking if exists: CompanyName={companyName}, Form={form}, FilingDate={theDate}");
+                        _logger?.LogTrace($"Checking if exists: CompanyName={companyName}, Form={form}, FilingDate={theDate}");
                         await InsertItemIfNotExists(companyName, form, theDate, urlField).ConfigureAwait(false);
                     }
                     catch (Exception ex)
@@ -197,37 +206,45 @@ public static class EdgarService
                 }
             }
 
-            _logger.LogInformation($"beginning unprocessed data");
+            _logger.LogTrace($"beginning unprocessed data");
             var unprocessedData = await QueryUnprocessedData().ConfigureAwait(false);
             foreach (var entity in unprocessedData)
             {
-                string companyName = entity.GetString("CompanyName");
-                var form = entity.GetString("Form");
-                DateTime? filingDate = DateTime.Parse(entity.GetString("FilingDate"));
-                var url = entity.GetString("Url");
-
-                // Check if the form is one of the specified types
-                //if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K"))
+                try
                 {
-                    itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
-                    companyField = companyName;
-                    titleField = $"{companyName} {form} {reportDate}";
-                    reportDateField = filingDate;
-                    formField = form;
-                    urlField = url;
+                    string companyName = entity.GetString("CompanyName");
+                    var form = entity.GetString("Form");
+                    DateTime? filingDate = DateTime.Parse(entity.GetString("FilingDate"));
+                    var url = entity.GetString("Url");
 
-                    retVal = await FetchWithExponentialBackoff(urlField).ConfigureAwait(false);
-                    if(retVal == "FAILED")
+                    // Check if the form is one of the specified types
+                    //if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K"))
                     {
-                        _logger.LogError($"Failed to fetch URL {urlField} after multiple retries.");
-                        continue;
-                    }
-                    _logger.LogInformation($"Fetched {urlField}");
+                        itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
+                        companyField = companyName;
+                        titleField = $"{companyName} {form} {reportDate}";
+                        reportDateField = filingDate;
+                        formField = form;
+                        urlField = url;
 
-                    EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, retVal);
-                    ContentService.Transform(edgarExternalItem);
-                    //externalItemData.Add(edgarExternalItem);
+                        retVal = await FetchWithExponentialBackoff(urlField).ConfigureAwait(false);
+                        if(retVal == "FAILED")
+                        {
+                            _logger.LogError($"Failed to fetch URL {urlField} after multiple retries.");
+                            continue;
+                        }
+                        _logger.LogTrace($"Fetched {urlField}");
+
+                        EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, retVal);
+                        ContentService.Transform(edgarExternalItem);
+                        //externalItemData.Add(edgarExternalItem);
+                    }
                 }
+                catch(Exception ex)
+                {
+                    _logger.LogError($"Error processing unprocessed data: {ex.Message}");
+                }
+
             }
         }
         return externalItemData;
@@ -260,7 +277,7 @@ public static class EdgarService
             {
                 // Insert the new entity
                 await _tableClient.AddEntityAsync(newEntity).ConfigureAwait(false);
-                _logger?.LogInformation($"Inserted new entity: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+                _logger?.LogTrace($"Inserted new entity: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
             }
             catch (Exception ex)
             {
@@ -269,7 +286,7 @@ public static class EdgarService
         }
         else
         {
-            _logger?.LogInformation($"Entity already exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+            _logger?.LogTrace($"Entity already exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
         }
     }
 
@@ -282,12 +299,13 @@ public static class EdgarService
         List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
         if (results.Count > 0)
         {
+            _logger?.LogTrace($"Found entity to update: Url={url}");
             // Update the "Processed" property of the first entity found
             var entityToUpdate = results[0];
             entityToUpdate["Processed"] = true;
             // Update the entity in the table
             await _tableClient.UpdateEntityAsync(entityToUpdate, Azure.ETag.All).ConfigureAwait(false);
-            _logger?.LogInformation($"Updated entity: Url={url}");
+            _logger?.LogTrace($"Updated entity: Url={url}");
         }
     }
 
@@ -323,7 +341,7 @@ public static class EdgarService
                     if (response.Headers.TryGetValues("Retry-After", out var values))
                     {
                         string retryAfter = values.First();
-                        _logger.LogInformation($"Rate limit exceeded. Retrying after {retryAfter} seconds.");
+                        _logger.LogTrace($"Rate limit exceeded. Retrying after {retryAfter} seconds.");
                         int retryAfterSeconds = int.Parse(retryAfter);
                         await Task.Delay(retryAfterSeconds * 1000);
                     }
@@ -346,7 +364,7 @@ public static class EdgarService
                 if (retry == maxRetries )
                 {
                     // Write to storage table
-                    _logger.LogInformation($"Max retries reached for URL {url}. Giving up.");
+                    _logger.LogTrace($"Max retries reached for URL {url}. Giving up.");
                 }
                 await Task.Delay(delay).ConfigureAwait(false);
                 delay *= 2; // Exponential backoff
