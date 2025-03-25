@@ -91,6 +91,7 @@ static class ContentService
       catch (Exception ex)
       {
         // Output an error message to the console if an exception occurs
+        logger.LogError(string.Format("Error loading item {0} | with content: Title: {1}, Company: {2}, Url: {3}", item.Id, item.Properties.AdditionalData["Title"], item.Properties.AdditionalData["Company"], item.Properties.AdditionalData["Url"]));
         logger.LogError("ERROR");
         logger.LogError(ex.Message);
       }

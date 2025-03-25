@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Azure.Data.Tables;
 using Microsoft.VisualBasic;
+using System.Text.RegularExpressions;
 
 namespace ApiGraphActivator.Services;
 
@@ -217,12 +218,17 @@ public static class EdgarService
                     DateTime? filingDate = DateTime.Parse(entity.GetString("FilingDate"));
                     var url = entity.GetString("Url");
 
+                        // Regex to match non-Base64 characters
+                    itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}";
+                    string pattern = @"[^A-Za-z0-9+/=]";
+                    itemId = Regex.Replace(itemId, pattern, "_");
+                    itemId = itemId.Replace("/","_");
                     // Check if the form is one of the specified types
                     //if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K"))
                     {
-                        itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
+                        //itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
                         companyField = companyName;
-                        titleField = $"{companyName} {form} {reportDate}";
+                        titleField = $"{companyName} {form} {filingDate.Value.ToShortDateString().Replace("/", "-")}";
                         reportDateField = filingDate;
                         formField = form;
                         urlField = url;
@@ -235,6 +241,11 @@ public static class EdgarService
                         }
                         _logger.LogTrace($"Fetched {urlField}");
 
+                        if(urlField.Contains(".pdf"))
+                        {
+                            _logger.LogTrace($"PDF document found. Skipping {urlField}.");
+                            continue;
+                        }
                         EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, retVal);
                         ContentService.Transform(edgarExternalItem);
                         //externalItemData.Add(edgarExternalItem);
