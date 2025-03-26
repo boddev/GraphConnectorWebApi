@@ -224,7 +224,7 @@ public static class EdgarService
                     itemId = Regex.Replace(itemId, pattern, "_");
                     itemId = itemId.Replace("/","_");
                     // Check if the form is one of the specified types
-                    //if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K"))
+                    if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K") || form.ToUpper().Contains("DEF 14A"))
                     {
                         //itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
                         companyField = companyName;
