@@ -5,18 +5,31 @@ static class ConnectionService
 {
   public static ILogger logger;
   // Define an asynchronous static method named CreateConnection
-  async static Task CreateConnection()
+  async static Task<(bool Success, ExternalConnection? Result, string ErrorMessage)> CreateConnection()
   {
-    // Output a message to the console indicating the start of the connection creation process
-    logger.LogInformation("Creating connection...");
+    try
+    {
+        ExternalConnection connection = ConnectionConfiguration.ExternalConnection;
 
-    ExternalConnection connection = ConnectionConfiguration.ExternalConnection;
-
-    // Await the asynchronous operation of posting a new connection to the GraphService client
-    var result = await GraphService.Client.External.Connections.PostAsync(connection);
-
-    // Output a message to the console indicating the completion of the connection creation process
-    logger.LogInformation("DONE");
+        // Await the asynchronous operation of posting a new connection to the GraphService client
+        var result = await GraphService.Client.External.Connections.PostAsync(connection);
+        
+        logger.LogInformation($"Connection created successfully with ID: {result?.Id}");
+        logger.LogInformation("DONE");
+        
+        return (true, result, string.Empty);
+    }
+    catch (Microsoft.Graph.Models.ODataErrors.ODataError odataError)
+    {
+        string errorDetails = $"Error code: {odataError.Error?.Code}, Message: {odataError.Error?.Message}";
+        logger.LogError($"Failed to create connection: {errorDetails}");
+        return (false, null, errorDetails);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError($"Unexpected error creating connection: {ex.Message}");
+        return (false, null, ex.Message);
+    }
   }
 
   // Define an asynchronous static method named CreateSchema

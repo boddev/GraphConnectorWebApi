@@ -5,6 +5,9 @@ using Microsoft.Extensions.Logging;
 using Azure.Data.Tables;
 using Microsoft.VisualBasic;
 using System.Text.RegularExpressions;
+using System.Reflection.Metadata;
+using Azure.Storage.Blobs;
+using HtmlAgilityPack;
 
 namespace ApiGraphActivator.Services;
 
@@ -14,9 +17,11 @@ public static class EdgarService
     private static readonly HttpClient _client;
     private static ILogger? _logger;
     private static TableClient? _tableClient;
+    private static BlobServiceClient? _blobServiceClient;
     static string? connectionString;
     static string? companyName;
     static string? companySymbol;
+    static string? processedBlobContainerName;
     static string cikLookup = "";
     static string cik = "";
     static string? companyTableName;
@@ -38,7 +43,9 @@ public static class EdgarService
         connectionString = Environment.GetEnvironmentVariable("TableStorage");
         companyTableName = Environment.GetEnvironmentVariable("CompanyTableName");
         processedTableName = Environment.GetEnvironmentVariable("ProcessedTableName");
+        processedBlobContainerName = Environment.GetEnvironmentVariable("BlobContainerName");
         _tableClient = new TableClient(connectionString, processedTableName);
+        _blobServiceClient = new BlobServiceClient(connectionString);
     }
 
     public static bool IsBase64String(string base64)
@@ -246,7 +253,39 @@ public static class EdgarService
                             _logger.LogTrace($"PDF document found. Skipping {urlField}.");
                             continue;
                         }
-                        EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, retVal);
+
+                        //OpenAIService openAIService = new OpenAIService();
+                        //string response = openAIService.GetChatResponse(retVal);
+
+                        HtmlDocument htmlDoc = new HtmlDocument();
+                        htmlDoc.LoadHtml(retVal);
+                        string response = htmlDoc.DocumentNode.InnerText;
+                        // Remove lines that start with "gaap:"
+                        // string[] lines = response.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                        // string cleanedResponse = string.Join(Environment.NewLine, 
+                        //     lines.Where(line => !line.TrimStart().StartsWith("gaap:", StringComparison.OrdinalIgnoreCase)));
+
+                        // // Use the cleaned response instead
+                        // response = cleanedResponse;
+
+                        
+
+                        // Get a reference to the container
+                        BlobContainerClient containerClient = _blobServiceClient.GetBlobContainerClient(processedBlobContainerName);
+                        
+                        // Create the container if it doesn't exist
+                        await containerClient.CreateIfNotExistsAsync();
+                        
+                        // Get a reference to the blob
+                        BlobClient blobClient = containerClient.GetBlobClient("/raw/" + itemId + ".html");
+                        await blobClient.UploadAsync(new BinaryData(retVal), true).ConfigureAwait(false);
+                        _logger.LogTrace($"Uploaded HTML {itemId}.html to blob storage.");
+
+                        blobClient = containerClient.GetBlobClient("/openai/" + itemId + ".txt");
+                        await blobClient.UploadAsync(new BinaryData(response), true).ConfigureAwait(false);
+                        _logger.LogTrace($"Uploaded OpenAI: {itemId}.text to blob storage.");
+
+                        EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, response);
                         ContentService.Transform(edgarExternalItem);
                         //externalItemData.Add(edgarExternalItem);
                     }
@@ -264,6 +303,16 @@ public static class EdgarService
     // Define a method to insert an item if it does not exist in the table
     public static async Task InsertItemIfNotExists(string companyName, string form, DateTime filingDate, string url)
     {
+        if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K") || form.ToUpper().Contains("DEF 14A"))
+        {
+            _logger?.LogTrace($"Checking if exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+        }
+        else
+        {
+            _logger?.LogTrace($"Skipping non-10-K/10-Q/8-K/DEF 14A form: {form}");
+            return;
+        }
+
         // Define the query filter
         string filter = $"Url eq '{url}'";
 

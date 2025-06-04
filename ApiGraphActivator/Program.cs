@@ -1,4 +1,5 @@
 using ApiGraphActivator.Services;
+using Microsoft.Extensions.Logging.ApplicationInsights;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,17 +9,29 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Add Application Insights telemetry
-builder.Services.AddApplicationInsightsTelemetry();
+builder.Services.AddApplicationInsightsTelemetry(options =>
+{
+    // Explicitly set instrumentation key if needed
+    // options.ConnectionString = builder.Configuration["ApplicationInsights:ConnectionString"];
+});
+
 builder.Services.AddLogging(loggingBuilder =>
 {
     loggingBuilder.AddConsole();
     loggingBuilder.AddDebug();
+    loggingBuilder.AddApplicationInsights();
+    
+    // Set minimum log level for Application Insights
+    loggingBuilder.AddFilter<ApplicationInsightsLoggerProvider>("ApiGraphActivator.Services", LogLevel.Trace);
 });
 
-// Register the custom logging service
+// Register your services as non-static when possible
 builder.Services.AddSingleton<LoggingService>();
 builder.Services.AddSingleton<BackgroundTaskQueue>(sp => new BackgroundTaskQueue(100));
 builder.Services.AddHostedService<QueuedHostedService>();
+
+// For static services that need logging
+builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
 var app = builder.Build();
 
@@ -31,11 +44,16 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-//var logger = app.Services.GetRequiredService<LoggingService>();
-var logger = app.Services.GetRequiredService<ILogger<Program>>();
-logger.LogInformation("Application started and Application Insights is configured.");
-EdgarService.InitializeLogger(logger);
-ConnectionService.InitializeLogger(logger);
+// Create a factory-based logger that's appropriate for static classes
+var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
+var staticServiceLogger = loggerFactory.CreateLogger("ApiGraphActivator.Services.StaticServices");
+
+// Pass the correctly created logger to your static services
+EdgarService.InitializeLogger(staticServiceLogger);
+ConnectionService.InitializeLogger(staticServiceLogger);
+
+// Log a test message to verify Application Insights is working
+staticServiceLogger.LogInformation("Application started and Application Insights is configured.");
 
 app.MapGet("/", () => "Hello World!")
     .WithName("GetHelloWorld")
@@ -47,7 +65,7 @@ app.MapPost("/grantPermissions", async (HttpContext context) =>
     var tenantId = await reader.ReadToEndAsync();
 
     // Log the tenant ID
-    logger.LogInformation("Received tenant ID: {TenantId}", tenantId);
+    staticServiceLogger.LogInformation("Received tenant ID: {TenantId}", tenantId);
 
     // Store the tenant ID in a text file
     await File.WriteAllTextAsync("tenantid.txt", tenantId);
@@ -66,7 +84,7 @@ app.MapPost("/provisionconnection", async (HttpContext context) =>
     var tenantId = await reader.ReadToEndAsync();
 
     // Log the tenant ID
-    logger.LogInformation("Provisioning connection for tenant ID: {TenantId}", tenantId);
+    staticServiceLogger.LogInformation("Provisioning connection for tenant ID: {TenantId}", tenantId);
 
     // Call the ProvisionConnection method with the tenant ID
     try{
@@ -74,7 +92,7 @@ app.MapPost("/provisionconnection", async (HttpContext context) =>
         await context.Response.WriteAsync("Connection provisioned successfully.");
     } catch (Exception ex) {
         // Log the exception message
-        logger.LogError("Error provisioning connection: {Message}", ex.Message);
+        staticServiceLogger.LogError("Error provisioning connection: {Message}", ex.Message);
         await context.Response.WriteAsync($"Error provisioning connection: {ex.Message}");
     }
 })
@@ -86,7 +104,7 @@ app.MapPost("/loadcontent", async (HttpContext context, BackgroundTaskQueue task
     using var reader = new StreamReader(context.Request.Body);
     var tenantId = await reader.ReadToEndAsync();
     // Log the tenant ID
-    logger.LogInformation("Loading content for tenant ID: {TenantId}", tenantId);
+    staticServiceLogger.LogInformation("Loading content for tenant ID: {TenantId}", tenantId);
 
     // Queue the long-running task
     await taskQueue.QueueBackgroundWorkItemAsync(async token =>
