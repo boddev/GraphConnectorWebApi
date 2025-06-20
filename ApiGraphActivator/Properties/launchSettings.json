@@ -9,6 +9,7 @@
         "TableStorage": "",
         "CompanyTableName": "trackedCompanies",
         "ProcessedTableName": "processedFormsText",
+        "BlobContainerName" : "",
         "APPLICATIONINSIGHTS_CONNECTION_STRING": "",
         "EmailAddress": "",
         "AzureAd:ClientId": "",
