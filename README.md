@@ -1,64 +1,436 @@
-# GraphConnectorWebApi
-This is a graph connector written as a dotnet webapi
+# SEC Edgar Graph Connector Web API
 
-This Graph Connector is a proof of concept and extracts publicly available data from the SEC and pushes it into the Microsoft Graph
+## Overview
 
+The SEC Edgar Graph Connector Web API is a comprehensive .NET 8 web application that creates a Microsoft Graph connector to extract, process, and index SEC (Securities and Exchange Commission) filing documents into Microsoft 365 search and Copilot experiences. This solution enables organizations to make SEC filings (10-K, 10-Q, and 8-K forms) searchable through Microsoft Search and accessible via Microsoft Copilot.
 
-To set up and run the **GraphConnectorWebApi**, you need to ensure the following prerequisites are in place:
+## What This Solution Does
 
-## 1. Install .NET 8
-1. Download and install the .NET 8 SDK from the official [Microsoft .NET website](https://dotnet.microsoft.com/download/dotnet/8.0).
-2. Verify the installation by running the following command in a terminal:
-   ```bash
-   dotnet --version
+This Graph Connector:
+- **Extracts** SEC filing data from the publicly available EDGAR database
+- **Processes** and enriches the content using AI services (Azure OpenAI)
+- **Indexes** the processed documents into Microsoft Graph as external content
+- **Enables** searchability of SEC filings through Microsoft 365 Search and Copilot
+- **Provides** structured metadata including company information, filing dates, form types, and content
+
+### Supported SEC Form Types
+- **10-K Reports**: Annual financial overviews providing comprehensive company performance data
+- **10-Q Reports**: Quarterly financial snapshots with interim financial statements
+- **8-K Forms**: Current reports notifying investors of significant company events
+
+## Solution Architecture
+
+### High-Level Architecture
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   SEC EDGAR     │    │  Graph Connector │    │  Microsoft 365  │
+│   Database      │───▶│     Web API      │───▶│   Search &      │
+│                 │    │                  │    │    Copilot      │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                              │
+                              ▼
+                       ┌──────────────────┐
+                       │  Azure Storage   │
+                       │  & Table Storage │
+                       └──────────────────┘
+```
+
+### Component Architecture
+
+#### Core Services
+1. **EdgarService**: Handles data extraction from SEC EDGAR database
+2. **ConnectionService**: Manages Microsoft Graph connector lifecycle
+3. **ContentService**: Processes and transforms content for indexing
+4. **GraphService**: Provides authenticated Microsoft Graph client
+5. **OpenAIService**: Enhances content using Azure OpenAI
+6. **LoggingService**: Centralized logging with Application Insights
+
+#### Data Flow
+1. **Extract**: Pull SEC filing data from EDGAR database
+2. **Transform**: Process HTML content, extract metadata, enhance with AI
+3. **Load**: Push structured data to Microsoft Graph as external items
+4. **Index**: Make content searchable in Microsoft 365
+
+#### Storage Components
+- **Azure Table Storage**: Stores processed filing metadata and tracking information
+- **Azure Blob Storage**: Caches processed content and intermediate data
+- **Microsoft Graph**: Final indexed content accessible via Search and Copilot
+
+### API Endpoints
+
+The solution exposes several REST API endpoints:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/` | GET | Health check endpoint |
+| `/grantPermissions` | POST | Initiates admin consent flow for Graph permissions |
+| `/provisionconnection` | POST | Creates and configures the Graph connector |
+| `/loadcontent` | POST | Triggers content extraction and indexing (background process) |
+
+## Prerequisites
+
+### 1. Development Environment
+- **.NET 8 SDK**: Download from [Microsoft .NET](https://dotnet.microsoft.com/download/dotnet/8.0)
+- **Visual Studio 2022** or **VS Code** with C# extension
+- **Azure CLI** (optional): For Azure resource management
+
+### 2. Azure Services Required
+
+#### Azure Active Directory (Entra ID) App Registration
+You need an app registration with the following configurations:
+
+**Required Microsoft Graph Permissions:**
+- `ExternalConnection.ReadWrite.OwnedBy` (Application)
+- `ExternalItem.ReadWrite.OwnedBy` (Application)
+
+**Steps to create:**
+1. Navigate to [Azure Portal](https://portal.azure.com) → Azure Active Directory → App registrations
+2. Click "New registration"
+3. Configure:
+   - **Name**: `SEC-Edgar-Graph-Connector`
+   - **Account types**: Accounts in this organizational directory only
+   - **Redirect URI**: Leave blank
+4. After creation, note:
+   - **Application (client) ID**
+   - **Directory (tenant) ID**
+5. Create a client secret:
+   - Go to "Certificates & secrets" → "New client secret"
+   - Note the secret **Value** (save immediately, it won't be shown again)
+
+#### Azure Storage Account
+Required for caching and processing:
+
+1. Create new storage account in Azure Portal
+2. Configuration:
+   - **Performance**: Standard
+   - **Redundancy**: LRS (or higher based on requirements)
+   - **Access tier**: Hot
+3. Note the **Connection String** from "Access keys" section
+
+#### Application Insights (Optional but Recommended)
+For monitoring and diagnostics:
+
+1. Create Application Insights resource
+2. Note the **Connection String**
+
+### 3. Environment Configuration
+
+The application requires the following environment variables:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `AzureAd:ClientId` | App registration client ID | `5431975-9395-4350-929b-f195e9466370` |
+| `AzureAd:ClientSecret` | App registration client secret | `ABC123%^#$7_8snE26ZEU409L2~-LRf30dle` |
+| `AzureAd:TenantId` | Azure AD tenant ID | `6984256-3102-4916-9c26-eb94f327f56d` |
+| `TableStorage` | Azure Storage connection string | `DefaultEndpointsProtocol=https;AccountName=...` |
+| `CompanyTableName` | Table for tracked companies | `trackedCompanies` |
+| `ProcessedTableName` | Table for processed forms | `processedFormsHTMLText` |
+| `BlobContainerName` | Blob container for processed data | `processed-data-text` |
+| `EmailAddress` | Contact email for SEC requests | `your-email@company.com` |
+| `OpenAIKey` | Azure OpenAI API key (optional) | `9a97227a9fc14b4386d427c1cee58276` |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Application Insights connection | `InstrumentationKey=...` |
+
+## Deployment Guide
+
+### Local Development Setup
+
+1. **Clone the repository**:
+   ```powershell
+   git clone https://github.com/boddev/GraphConnectorWebApi.git
+   cd GraphConnectorWebApi
    ```
-   Ensure the output shows a version starting with `8`.
+
+2. **Configure User Secrets** (recommended for development):
+   ```powershell
+   cd ApiGraphActivator
+   dotnet user-secrets set "AzureAd:ClientId" "your-client-id"
+   dotnet user-secrets set "AzureAd:ClientSecret" "your-client-secret"
+   dotnet user-secrets set "AzureAd:TenantId" "your-tenant-id"
+   dotnet user-secrets set "TableStorage" "your-storage-connection-string"
+   dotnet user-secrets set "EmailAddress" "your-email@company.com"
+   # Add other required secrets...
+   ```
+
+3. **Build and run**:
+   ```powershell
+   dotnet build
+   dotnet run
+   ```
+
+4. **Access Swagger UI**: Navigate to `http://localhost:5236/swagger`
+
+### Production Deployment Options
+
+#### Option 1: Azure App Service
+
+1. **Create App Service**:
+   ```bash
+   az webapp create --resource-group myResourceGroup --plan myAppServicePlan --name sec-edgar-connector --runtime "DOTNETCORE:8.0"
+   ```
+
+2. **Configure App Settings**:
+   ```bash
+   az webapp config appsettings set --resource-group myResourceGroup --name sec-edgar-connector --settings \
+     AzureAd__ClientId="your-client-id" \
+     AzureAd__ClientSecret="your-client-secret" \
+     AzureAd__TenantId="your-tenant-id" \
+     TableStorage="your-storage-connection-string"
+   ```
+
+3. **Deploy**:
+   ```powershell
+   dotnet publish -c Release
+   # Use Azure DevOps, GitHub Actions, or direct deployment
+   ```
+
+#### Option 2: Docker Container
+
+1. **Build Docker image**:
+   ```powershell
+   docker build -t sec-edgar-connector .
+   ```
+
+2. **Run container**:
+   ```powershell
+   docker run -d -p 8080:8080 \
+     -e AzureAd__ClientId="your-client-id" \
+     -e AzureAd__ClientSecret="your-client-secret" \
+     -e AzureAd__TenantId="your-tenant-id" \
+     -e TableStorage="your-storage-connection-string" \
+     sec-edgar-connector
+   ```
+
+#### Option 3: Azure Container Instances
+
+```bash
+az container create \
+  --resource-group myResourceGroup \
+  --name sec-edgar-connector \
+  --image your-registry/sec-edgar-connector:latest \
+  --environment-variables \
+    AzureAd__ClientId="your-client-id" \
+    AzureAd__TenantId="your-tenant-id" \
+  --secure-environment-variables \
+    AzureAd__ClientSecret="your-client-secret" \
+    TableStorage="your-storage-connection-string"
+```
+
+## Usage Guide
+
+### Step 1: Grant Admin Permissions
+
+Before using the connector, an admin must consent to the required Graph permissions:
+
+```http
+POST /grantPermissions
+Content-Type: application/json
+
+"your-tenant-id"
+```
+
+This will redirect to the Microsoft admin consent flow.
+
+### Step 2: Provision the Graph Connector
+
+Create the connector and its schema in Microsoft Graph:
+
+```http
+POST /provisionconnection
+Content-Type: application/json
+
+"your-tenant-id"
+```
+
+This operation:
+- Creates the external connection with ID `secedgartextdataset`
+- Defines the schema for SEC filing metadata
+- Configures search and display properties
+
+### Step 3: Load Content
+
+Trigger the content extraction and indexing process:
+
+```http
+POST /loadcontent
+Content-Type: application/json
+
+"your-tenant-id"
+```
+
+This starts a background process that:
+- Extracts SEC filings from the EDGAR database
+- Processes and enriches content
+- Indexes items into Microsoft Graph
+- Returns HTTP 202 (Accepted) immediately
+
+### Step 4: Monitor Progress
+
+Check Application Insights or application logs to monitor the indexing progress.
+
+### Step 5: Search Content
+
+Once indexed, SEC filings will be searchable through:
+- **Microsoft Search** in Office 365
+- **Microsoft Copilot** for contextual queries
+- **SharePoint Search**
+
+## Configuration Details
+
+### Connection Configuration
+
+The `ConnectionConfiguration.cs` defines the Graph connector properties:
+
+- **Connection ID**: `secedgartextdataset`
+- **Name**: `SECEdgarTextDataset`
+- **Description**: Comprehensive description of SEC filing types
+- **Schema**: Defines searchable properties (Title, Company, URL, DateFiled, Form)
+
+### Content Schema
+
+Each indexed item includes:
+
+| Property | Type | Description |
+|----------|------|-------------|
+| Title | String | Filing title/description |
+| Company | String | Company name |
+| Url | String | Link to original SEC filing |
+| DateFiled | DateTime | Filing date |
+| Form | String | SEC form type (10-K, 10-Q, 8-K) |
+| Content | HTML | Processed filing content |
+
+### Background Processing
+
+The solution uses a background task queue for long-running operations:
+- **Bounded Channel**: Prevents memory overflow
+- **Hosted Service**: Processes queued tasks
+- **Graceful Shutdown**: Handles application termination
+
+## Monitoring and Troubleshooting
+
+### Application Insights Integration
+
+The solution includes comprehensive telemetry:
+- **Request tracking**: API endpoint usage
+- **Dependency tracking**: External service calls
+- **Custom events**: Business logic milestones
+- **Exception tracking**: Error analysis
+
+### Common Issues and Solutions
+
+#### 1. Authentication Failures
+**Symptoms**: 401 Unauthorized errors
+**Solutions**:
+- Verify app registration permissions
+- Check client secret expiration
+- Ensure admin consent was granted
+
+#### 2. Storage Connection Issues
+**Symptoms**: Storage-related exceptions
+**Solutions**:
+- Validate storage connection string
+- Check storage account permissions
+- Verify container/table existence
+
+#### 3. SEC EDGAR Rate Limiting
+**Symptoms**: HTTP 429 responses
+**Solutions**:
+- Implement exponential backoff (built-in)
+- Verify User-Agent header configuration
+- Monitor request frequency
+
+#### 4. Graph Connector Provisioning Fails
+**Symptoms**: Connection creation errors
+**Solutions**:
+- Verify Graph permissions
+- Check for existing connections with same ID
+- Review schema configuration
+
+### Logs and Diagnostics
+
+Key log categories:
+- `ApiGraphActivator.Services.EdgarService`: SEC data extraction
+- `ApiGraphActivator.Services.ConnectionService`: Graph connector operations
+- `ApiGraphActivator.Services.ContentService`: Content processing
+
+## Security Considerations
+
+### Data Protection
+- **Encryption in Transit**: HTTPS endpoints
+- **Encryption at Rest**: Azure Storage encryption
+- **Secrets Management**: Azure Key Vault integration recommended
+
+### Access Control
+- **App Registration**: Least privilege permissions
+- **Service Principal**: Dedicated identity for Graph operations
+- **Network Security**: Consider VNet integration for production
+
+### Compliance
+- **Data Residency**: Configure Azure regions appropriately
+- **Audit Logging**: Application Insights provides audit trail
+- **Data Retention**: Configure based on organizational policies
+
+## Performance Optimization
+
+### Scaling Considerations
+- **Background Processing**: Increase queue capacity for high volume
+- **Concurrent Processing**: Configure parallel operations
+- **Caching**: Implement Redis cache for frequently accessed data
+
+### Resource Management
+- **Memory Usage**: Monitor for large document processing
+- **Storage Costs**: Implement data lifecycle policies
+- **API Throttling**: Respect Microsoft Graph rate limits
+
+## Development and Extension
+
+### Adding New SEC Form Types
+1. Update `EdgarService` extraction logic
+2. Modify `ConnectionConfiguration` schema if needed
+3. Enhance `ContentService` transformation rules
+
+### Custom Content Enhancement
+The solution supports content enrichment via:
+- **Azure OpenAI Integration**: Summarization, classification
+- **Custom Processing Rules**: Industry-specific extraction
+- **Metadata Enrichment**: Additional data sources
+
+### Testing
+```powershell
+# Run unit tests
+dotnet test
+
+# Run integration tests
+dotnet test --filter Category=Integration
+
+# Performance testing
+dotnet run --configuration Release --launch-profile Performance
+```
+
+## Support and Contributing
+
+### Getting Help
+- Check Application Insights for runtime issues
+- Review logs for detailed error information
+- Consult Microsoft Graph documentation for connector limitations
+
+### Contributing
+1. Fork the repository
+2. Create feature branch
+3. Submit pull request with tests
+4. Follow established coding patterns
+
+## License
+
+This project is licensed under the MIT License. See LICENSE file for details.
+
+## Additional Resources
+
+- [Microsoft Graph Connectors Documentation](https://docs.microsoft.com/en-us/microsoftsearch/connectors-overview)
+- [SEC EDGAR Database](https://www.sec.gov/edgar/searchedgar/companysearch.html)
+- [Azure Storage Documentation](https://docs.microsoft.com/en-us/azure/storage/)
+- [Application Insights Documentation](https://docs.microsoft.com/en-us/azure/azure-monitor/app/app-insights-overview)
 
 ---
 
-## 2. Create an Entra ID App Registration
-1. Log in to the [Microsoft Entra Admin Center](https://entra.microsoft.com/).
-2. Navigate to **Azure Active Directory** > **App registrations** > **New registration**.
-3. Provide the following details:
-   - **Name**: Enter a name for your app (e.g., `GraphConnectorWebApi`).
-   - **Supported account types**: Choose the appropriate option based on your requirements.
-   - **Redirect URI**: Leave this blank for now or set it to `http://localhost` if testing locally.
-4. Click **Register**.
-
-### Add a Client Secret
-1. After registration, go to the **Certificates & secrets** section.
-2. Under **Client secrets**, click **New client secret**.
-3. Provide a description (e.g., `GraphConnectorSecret`) and set an expiration period.
-4. Click **Add** and copy the **Value** of the secret. **Save this value securely**, as it will not be shown again.
-
-### Note the App Details
-- Copy the **Application (client) ID** and **Directory (tenant) ID** from the **Overview** page. These will be needed for configuration.
-
----
-
-## 3. Create an Azure Storage Account
-1. Log in to the [Azure Portal](https://portal.azure.com/).
-2. Navigate to **Storage accounts** > **Create**.
-3. Provide the following details:
-   - **Subscription**: Select your Azure subscription.
-   - **Resource group**: Create a new resource group or use an existing one.
-   - **Storage account name**: Enter a unique name (e.g., `graphconnectorstorage`).
-   - **Region**: Choose a region close to your location.
-   - **Performance**: Select `Standard`.
-   - **Redundancy**: Choose the redundancy option that fits your needs (e.g., `Locally-redundant storage (LRS)`).
-4. Click **Review + Create** and then **Create**.
-
-### Note the Connection String
-1. After the storage account is created, go to the **Access keys** section.
-2. Copy the **Connection string** for one of the keys. This will be used in the application configuration.
-
----
-
-## 4. Summary of Required Values
-Ensure you have the following values ready for configuring the application:
-- **Tenant ID**: From the App Registration in Entra ID.
-- **Client ID**: From the App Registration in Entra ID.
-- **Client Secret**: Created in the App Registration.
-- **Azure Storage Connection String**: From the Azure Storage account.
-
-Once these prerequisites are set up, you can proceed to configure and run the **GraphConnectorWebApi**.
+**Note**: This solution is designed for demonstration and proof-of-concept purposes. For production use, implement additional security measures, error handling, and monitoring based on your organization's requirements.
