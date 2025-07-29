@@ -41,10 +41,12 @@ export const fetchCrawledCompanies = async () => {
 // Service to trigger the crawl process
 export const triggerCrawl = async (selectedCompanies) => {
   try {
+    console.log('Triggering crawl for companies:', selectedCompanies);
     const response = await axios.post(`${API_BASE_URL}/loadcontent`, {
       companies: selectedCompanies
     });
     
+    console.log('Crawl response:', response.data);
     return response.data;
   } catch (error) {
     console.error('Error triggering crawl:', error);
@@ -77,4 +79,47 @@ export const getCrawlStatus = async () => {
     console.error('Error getting crawl status:', error);
     throw new Error('Failed to get crawl status');
   }
+};
+
+// Storage Configuration Services
+export const getStorageConfig = async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/storage-config`);
+    return response.data;
+  } catch (error) {
+    console.error('Error getting storage configuration:', error);
+    throw new Error('Failed to get storage configuration');
+  }
+};
+
+export const saveStorageConfig = async (config) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/storage-config`, config);
+    return response.data;
+  } catch (error) {
+    console.error('Error saving storage configuration:', error);
+    throw new Error('Failed to save storage configuration');
+  }
+};
+
+export const testStorageConfig = async (config) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/storage-config/test`, config);
+    return response.data;
+  } catch (error) {
+    console.error('Error testing storage configuration:', error);
+    throw new Error('Failed to test storage configuration');
+  }
+};
+
+// Export as default object for easier importing
+export const apiService = {
+  fetchCompanyTickers,
+  fetchCrawledCompanies,
+  triggerCrawl,
+  provisionConnection,
+  getCrawlStatus,
+  getStorageConfig,
+  saveStorageConfig,
+  testStorageConfig
 };

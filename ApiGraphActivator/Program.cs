@@ -9,6 +9,13 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Configure JSON serialization options
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    options.SerializerOptions.PropertyNameCaseInsensitive = true;
+});
+
 // Add CORS
 builder.Services.AddCors(options =>
 {
@@ -40,6 +47,7 @@ builder.Services.AddLogging(loggingBuilder =>
 
 // Register your services as non-static when possible
 builder.Services.AddSingleton<LoggingService>();
+builder.Services.AddSingleton<StorageConfigurationService>();
 builder.Services.AddSingleton<BackgroundTaskQueue>(sp => new BackgroundTaskQueue(100));
 builder.Services.AddHostedService<QueuedHostedService>();
 
@@ -119,19 +127,31 @@ app.MapPost("/loadcontent", async (HttpContext context, BackgroundTaskQueue task
 {
     try
     {
+        staticServiceLogger.LogInformation("Received loadcontent request");
+        
         using var reader = new StreamReader(context.Request.Body);
         var requestBody = await reader.ReadToEndAsync();
+        
+        staticServiceLogger.LogInformation("Request body: {RequestBody}", requestBody);
         
         // Try to parse as JSON first (new format), then fall back to old format
         CrawlRequest? crawlRequest = null;
         try
         {
-            crawlRequest = System.Text.Json.JsonSerializer.Deserialize<CrawlRequest>(requestBody);
+            var jsonOptions = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
+            };
+            crawlRequest = System.Text.Json.JsonSerializer.Deserialize<CrawlRequest>(requestBody, jsonOptions);
+            staticServiceLogger.LogInformation("Successfully parsed crawl request with {CompanyCount} companies", 
+                crawlRequest?.Companies?.Count ?? 0);
         }
-        catch
+        catch (Exception ex)
         {
             // Fall back to old format (just tenant ID)
-            staticServiceLogger.LogInformation("Loading content for tenant ID: {TenantId}", requestBody);
+            staticServiceLogger.LogInformation("Failed to parse as JSON, treating as tenant ID: {TenantId}. Error: {Error}", 
+                requestBody, ex.Message);
         }
 
         if (crawlRequest?.Companies?.Any() == true)
@@ -141,11 +161,17 @@ app.MapPost("/loadcontent", async (HttpContext context, BackgroundTaskQueue task
             // Save companies to config file for persistence
             await ConfigurationService.SaveCrawledCompaniesAsync(crawlRequest.Companies);
             
+            staticServiceLogger.LogInformation("Queueing background task for crawl");
+            
             // Queue the long-running task with selected companies
             await taskQueue.QueueBackgroundWorkItemAsync(async token =>
             {
+                staticServiceLogger.LogInformation("Background task started for {CompanyCount} companies", crawlRequest.Companies.Count);
                 await ContentService.LoadContentForCompanies(crawlRequest.Companies);
+                staticServiceLogger.LogInformation("Background task completed for {CompanyCount} companies", crawlRequest.Companies.Count);
             });
+            
+            staticServiceLogger.LogInformation("Background task queued successfully");
         }
         else
         {
@@ -232,6 +258,51 @@ app.MapGet("/crawled-companies", async (HttpContext context) =>
     }
 })
 .WithName("GetCrawledCompanies")
+.WithOpenApi();
+
+// Storage Configuration Endpoints
+app.MapGet("/storage-config", async (StorageConfigurationService storageConfigService) =>
+{
+    var config = await storageConfigService.GetConfigurationAsync();
+    return Results.Ok(config);
+})
+.WithName("GetStorageConfig")
+.WithOpenApi();
+
+app.MapPost("/storage-config", async (StorageConfiguration config, StorageConfigurationService storageConfigService) =>
+{
+    try
+    {
+        await storageConfigService.SaveConfigurationAsync(config);
+        return Results.Ok(new { message = "Storage configuration saved successfully" });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { message = $"Failed to save configuration: {ex.Message}" });
+    }
+})
+.WithName("SaveStorageConfig")
+.WithOpenApi();
+
+app.MapPost("/storage-config/test", async (StorageConfiguration config, StorageConfigurationService storageConfigService) =>
+{
+    try
+    {
+        bool isHealthy = await storageConfigService.TestConnectionAsync(config);
+        return Results.Ok(new { 
+            healthy = isHealthy, 
+            message = isHealthy ? "Connection successful" : "Connection failed" 
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.BadRequest(new { 
+            healthy = false, 
+            message = $"Connection test failed: {ex.Message}" 
+        });
+    }
+})
+.WithName("TestStorageConfig")
 .WithOpenApi();
 
 app.Run();

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import CompanySelector from './components/CompanySelector';
 import CrawlControls from './components/CrawlControls';
 import CrawlHistory from './components/CrawlHistory';
+import StorageConfig from './components/StorageConfig';
 import { fetchCompanyTickers, fetchCrawledCompanies, triggerCrawl } from './services/apiService';
 
 function App() {
@@ -11,6 +12,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [crawling, setCrawling] = useState(false);
+  const [showStorageConfig, setShowStorageConfig] = useState(false);
 
   // Load company data and crawl history on component mount
   useEffect(() => {
@@ -59,8 +61,19 @@ function App() {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1>Edgar SEC Filings Connector</h1>
-        <p>Select companies to crawl their SEC filings for Microsoft Graph integration</p>
+        <div className="header-content">
+          <div className="header-text">
+            <h1>Edgar SEC Filings Connector</h1>
+            <p>Select companies to crawl their SEC filings for Microsoft Graph integration</p>
+          </div>
+          <button 
+            className="storage-config-button"
+            onClick={() => setShowStorageConfig(true)}
+            title="Configure Storage Settings"
+          >
+            ⚙️ Storage Settings
+          </button>
+        </div>
       </header>
       
       {/* Application Description */}
@@ -111,6 +124,13 @@ function App() {
           crawledHistory={crawledHistory}
         />
       </main>
+
+      {/* Storage Configuration Modal */}
+      {showStorageConfig && (
+        <StorageConfig 
+          onClose={() => setShowStorageConfig(false)}
+        />
+      )}
     </div>
   );
 }

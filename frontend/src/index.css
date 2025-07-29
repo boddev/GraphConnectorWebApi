@@ -23,9 +23,66 @@ code {
   background-color: #282c34;
   padding: 20px;
   color: white;
-  text-align: center;
   margin-bottom: 30px;
   border-radius: 8px;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.header-text {
+  text-align: left;
+}
+
+.header-text h1 {
+  margin: 0 0 8px 0;
+}
+
+.header-text p {
+  margin: 0;
+  opacity: 0.9;
+}
+
+.storage-config-button {
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.storage-config-button:hover {
+  background-color: #45a049;
+  transform: translateY(-1px);
+}
+
+.storage-config-button:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .header-text {
+    text-align: center;
+  }
+  
+  .storage-config-button {
+    width: 100%;
+  }
 }
 
 /* Application Description Section */

@@ -11,7 +11,7 @@
         "ProcessedTableName": "processedFormsText",
         "BlobContainerName" : "",
         "APPLICATIONINSIGHTS_CONNECTION_STRING": "",
-        "EmailAddress": "",
+        "EmailAddress": "developer@example.com",
         "AzureAd:ClientId": "",
         "AzureAd:ClientSecret": "",
         "AzureAd:TenantId": "",
