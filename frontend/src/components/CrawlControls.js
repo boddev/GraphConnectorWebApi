@@ -1,0 +1,65 @@
+import React, { useState } from 'react';
+
+const CrawlControls = ({ selectedCompanies, onTriggerCrawl, crawling }) => {
+  const [message, setMessage] = useState('');
+  const [messageType, setMessageType] = useState(''); // 'success' or 'error'
+
+  const handleCrawlClick = async () => {
+    if (selectedCompanies.length === 0) {
+      setMessage('Please select at least one company before starting the crawl.');
+      setMessageType('error');
+      return;
+    }
+
+    try {
+      setMessage('');
+      await onTriggerCrawl(selectedCompanies);
+      setMessage(`Crawl started successfully for ${selectedCompanies.length} companies. The process is running in the background.`);
+      setMessageType('success');
+    } catch (error) {
+      setMessage(`Failed to start crawl: ${error.message}`);
+      setMessageType('error');
+    }
+  };
+
+  return (
+    <div className="section">
+      <h2>Crawl Controls</h2>
+      
+      {message && (
+        <div className={messageType}>
+          {message}
+        </div>
+      )}
+
+      <div className="actions-container">
+        <button
+          className="crawl-button"
+          onClick={handleCrawlClick}
+          disabled={crawling || selectedCompanies.length === 0}
+        >
+          {crawling ? 'Crawling in Progress...' : `Start Crawl (${selectedCompanies.length} companies)`}
+        </button>
+      </div>
+
+      {selectedCompanies.length > 0 && (
+        <div className="section">
+          <h3>Selected Companies for Crawl:</h3>
+          <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
+            {selectedCompanies.map((company, index) => (
+              <div key={company.cik} style={{ 
+                padding: '8px 12px', 
+                borderBottom: index < selectedCompanies.length - 1 ? '1px solid #eee' : 'none',
+                fontSize: '14px'
+              }}>
+                <strong>{company.ticker}</strong> - {company.title}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default CrawlControls;

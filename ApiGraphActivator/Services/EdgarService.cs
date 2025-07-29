@@ -37,15 +37,29 @@ public static class EdgarService
     static EdgarService()
     {
         _client = new HttpClient();
-        _client.DefaultRequestHeaders.Add("User-Agent", $"Microsoft/1.0 ({Environment.GetEnvironmentVariable("EmailAddress")})");
+        _client.DefaultRequestHeaders.Add("User-Agent", $"Microsoft/1.0 ({Environment.GetEnvironmentVariable("EmailAddress") ?? "unknown@example.com"})");
         _logger?.LogTrace("HttpClient initialized with User-Agent header.");
 
         connectionString = Environment.GetEnvironmentVariable("TableStorage");
         companyTableName = Environment.GetEnvironmentVariable("CompanyTableName");
         processedTableName = Environment.GetEnvironmentVariable("ProcessedTableName");
         processedBlobContainerName = Environment.GetEnvironmentVariable("BlobContainerName");
-        _tableClient = new TableClient(connectionString, processedTableName);
-        _blobServiceClient = new BlobServiceClient(connectionString);
+        
+        // Only initialize Azure services if connection string is provided
+        if (!string.IsNullOrEmpty(connectionString) && !string.IsNullOrEmpty(processedTableName))
+        {
+            try
+            {
+                _tableClient = new TableClient(connectionString, processedTableName);
+                _blobServiceClient = new BlobServiceClient(connectionString);
+            }
+            catch (Exception)
+            {
+                // Azure services not available - continue without them
+                _tableClient = null;
+                _blobServiceClient = null;
+            }
+        }
     }
 
     public static bool IsBase64String(string base64)
@@ -64,25 +78,35 @@ public static class EdgarService
         var company_tkr_response = await _client.GetStringAsync(url).ConfigureAwait(false);
 
         // Create a list to store the table entities and filing documents
-        List<TableEntity> tableEntities;
+        List<TableEntity> tableEntities = new List<TableEntity>();
         List<EdgarExternalItem> filingDocuments = new List<EdgarExternalItem>();
 
         try
         {
-            TableClient tc = new TableClient(connectionString, companyTableName);
-            // Retrieve all entities from the table
-            tableEntities = tc.Query<TableEntity>().ToList();
+            // Only query table if Azure Table Storage is available
+            if (_tableClient != null && !string.IsNullOrEmpty(companyTableName))
+            {
+                TableClient tc = new TableClient(connectionString, companyTableName);
+                // Retrieve all entities from the table
+                tableEntities = tc.Query<TableEntity>().ToList();
+            }
+            else
+            {
+                _logger?.LogInformation("Azure Table Storage not configured. Skipping table-based company lookup.");
+                return filingDocuments;
+            }
+
             // Process the table entities as needed
             foreach (var entity in tableEntities)
             {
-                _logger.LogTrace($"PartitionKey: {entity.PartitionKey}, RowKey: {entity.RowKey}");
+                _logger?.LogTrace($"PartitionKey: {entity.PartitionKey}, RowKey: {entity.RowKey}");
                 companyName = entity.GetString("RowKey").Trim();
                 companySymbol = entity.GetString("Symbol").Trim();
                 cikLookup = ExtractCIK(company_tkr_response, companySymbol);
 
                 if (cikLookup == "Company not found")
                 {
-                    _logger.LogError($"Company not found for {companySymbol}");
+                    _logger?.LogError($"Company not found for {companySymbol}");
                     continue;
                 }
 
@@ -98,10 +122,50 @@ public static class EdgarService
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error retrieving entities from table: {ex.Message}");
+            _logger?.LogError($"Error retrieving entities from table: {ex.Message}");
             return filingDocuments;
         }
 
+        return filingDocuments;
+    }
+
+    // Define an asynchronous static method to hydrate lookup data for specific companies
+    async public static Task<List<EdgarExternalItem>> HydrateLookupDataForCompanies(List<Company> companies)
+    {
+        _logger?.LogInformation("Processing {CompanyCount} companies", companies.Count);
+        
+        // Create a list to store filing documents
+        List<EdgarExternalItem> filingDocuments = new List<EdgarExternalItem>();
+
+        try
+        {
+            // Process each selected company
+            foreach (var company in companies)
+            {
+                _logger?.LogTrace($"Processing company: {company.Ticker} - {company.Title}");
+                
+                companyName = company.Title.Trim();
+                companySymbol = company.Ticker.Trim();
+                cikLookup = company.Cik.ToString();
+
+                string filingJson = await GetCIKFiling().ConfigureAwait(false);
+                var companyFilingDocuments = await GetDocument(filingJson).ConfigureAwait(false);
+                
+                if (companyFilingDocuments != null)
+                {
+                    filingDocuments.AddRange(companyFilingDocuments);
+                }
+                
+                _logger?.LogTrace($"Processed {companyFilingDocuments?.Count ?? 0} documents for {company.Ticker}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError($"Error processing companies: {ex.Message}");
+            return filingDocuments;
+        }
+
+        _logger?.LogInformation("Completed processing. Total documents: {DocumentCount}", filingDocuments.Count);
         return filingDocuments;
     }
 
@@ -268,22 +332,35 @@ public static class EdgarService
                         // // Use the cleaned response instead
                         // response = cleanedResponse;
 
-                        
+                        // Upload to blob storage if available
+                        if (_blobServiceClient != null && !string.IsNullOrEmpty(processedBlobContainerName))
+                        {
+                            try
+                            {
+                                // Get a reference to the container
+                                BlobContainerClient containerClient = _blobServiceClient.GetBlobContainerClient(processedBlobContainerName);
+                                
+                                // Create the container if it doesn't exist
+                                await containerClient.CreateIfNotExistsAsync();
+                                
+                                // Get a reference to the blob
+                                BlobClient blobClient = containerClient.GetBlobClient("/raw/" + itemId + ".html");
+                                await blobClient.UploadAsync(new BinaryData(retVal), true).ConfigureAwait(false);
+                                _logger?.LogTrace($"Uploaded HTML {itemId}.html to blob storage.");
 
-                        // Get a reference to the container
-                        BlobContainerClient containerClient = _blobServiceClient.GetBlobContainerClient(processedBlobContainerName);
-                        
-                        // Create the container if it doesn't exist
-                        await containerClient.CreateIfNotExistsAsync();
-                        
-                        // Get a reference to the blob
-                        BlobClient blobClient = containerClient.GetBlobClient("/raw/" + itemId + ".html");
-                        await blobClient.UploadAsync(new BinaryData(retVal), true).ConfigureAwait(false);
-                        _logger.LogTrace($"Uploaded HTML {itemId}.html to blob storage.");
-
-                        blobClient = containerClient.GetBlobClient("/openai/" + itemId + ".txt");
-                        await blobClient.UploadAsync(new BinaryData(response), true).ConfigureAwait(false);
-                        _logger.LogTrace($"Uploaded OpenAI: {itemId}.text to blob storage.");
+                                blobClient = containerClient.GetBlobClient("/openai/" + itemId + ".txt");
+                                await blobClient.UploadAsync(new BinaryData(response), true).ConfigureAwait(false);
+                                _logger?.LogTrace($"Uploaded OpenAI: {itemId}.text to blob storage.");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger?.LogWarning($"Failed to upload to blob storage: {ex.Message}");
+                            }
+                        }
+                        else
+                        {
+                            _logger?.LogTrace("Blob storage not configured. Skipping file uploads.");
+                        }
 
                         EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, response);
                         ContentService.Transform(edgarExternalItem);
@@ -303,6 +380,13 @@ public static class EdgarService
     // Define a method to insert an item if it does not exist in the table
     public static async Task InsertItemIfNotExists(string companyName, string form, DateTime filingDate, string url)
     {
+        // Skip if Azure Table Storage is not available
+        if (_tableClient == null)
+        {
+            _logger?.LogTrace("Azure Table Storage not available. Skipping entity insertion.");
+            return;
+        }
+
         if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K") || form.ToUpper().Contains("DEF 14A"))
         {
             _logger?.LogTrace($"Checking if exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
@@ -353,6 +437,13 @@ public static class EdgarService
     // Define a method to update the processed item in the table
     public static async Task UpdateProcessedItem(string url)
     {
+        // Skip if Azure Table Storage is not available
+        if (_tableClient == null)
+        {
+            _logger?.LogTrace("Azure Table Storage not available. Skipping processed item update.");
+            return;
+        }
+
         // Define the query filter
         string filter = $"Url eq '{url}'";
         // Execute the query
@@ -372,6 +463,13 @@ public static class EdgarService
     // Define a method to query unprocessed data from the table
     public static async Task<List<TableEntity>> QueryUnprocessedData()
     {
+        // Return empty list if Azure Table Storage is not available
+        if (_tableClient == null)
+        {
+            _logger?.LogTrace("Azure Table Storage not available. Returning empty unprocessed data list.");
+            return new List<TableEntity>();
+        }
+
         // Define the query filter
         string filter = $"Processed eq false";
 

@@ -113,4 +113,36 @@ static class ContentService
     // // Call the Load method to load the transformed items
     // await Load();
   }
+
+  // Define a public asynchronous static method named LoadContentForCompanies
+  public static async Task LoadContentForCompanies(List<Company> companies)
+  {
+    logger.LogInformation("Starting content extraction for {CompanyCount} companies", companies.Count);
+    
+    // Extract content for specific companies
+    await ExtractForCompanies(companies);
+
+    // // Iterate over each item in the content list and transform it
+    // foreach (var item in content)
+    // {
+    //   Transform(item);
+    // }
+
+    // // Call the Load method to load the transformed items
+    // await Load();
+    
+    logger.LogInformation("Completed content extraction for {CompanyCount} companies", companies.Count);
+  }
+
+  // Define an asynchronous static method named ExtractForCompanies
+  async static Task ExtractForCompanies(List<Company> companies)
+  {
+    logger.LogInformation("Extracting data for selected companies: {Companies}", 
+      string.Join(", ", companies.Select(c => c.Ticker)));
+    
+    // Pass the selected companies to EdgarService for processing
+    content = await EdgarService.HydrateLookupDataForCompanies(companies);
+    
+    logger.LogInformation("Extracted {ItemCount} items for selected companies", content?.Count ?? 0);
+  }
 }
