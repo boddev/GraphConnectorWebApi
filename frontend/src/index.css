@@ -28,6 +28,65 @@ code {
   border-radius: 8px;
 }
 
+/* Application Description Section */
+.app-description {
+  margin-bottom: 30px;
+}
+
+.description-card {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 25px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.description-card h2 {
+  color: #495057;
+  margin-bottom: 15px;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.description-card p {
+  color: #6c757d;
+  line-height: 1.6;
+  margin-bottom: 15px;
+}
+
+.features-list {
+  list-style: none;
+  padding: 0;
+  margin: 15px 0;
+}
+
+.features-list li {
+  background-color: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 12px 15px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.features-list li strong {
+  color: #007acc;
+  font-weight: 600;
+}
+
+.integration-note {
+  background-color: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  padding: 12px 15px;
+  border-radius: 4px;
+  margin-top: 20px;
+  font-style: italic;
+  color: #1565c0;
+}
+
 .main-content {
   background-color: white;
   padding: 30px;

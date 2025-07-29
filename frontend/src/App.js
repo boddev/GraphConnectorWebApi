@@ -63,6 +63,35 @@ function App() {
         <p>Select companies to crawl their SEC filings for Microsoft Graph integration</p>
       </header>
       
+      {/* Application Description */}
+      <section className="app-description">
+        <div className="description-card">
+          <h2>📋 What This Application Does</h2>
+          <p>
+            This application automatically downloads and processes SEC filings for your selected companies. 
+            Once you select companies and start the crawl process, the system will:
+          </p>
+          <ul className="features-list">
+            <li>
+              <strong>10-Q Forms:</strong> Download quarterly financial reports that provide detailed financial information for each quarter
+            </li>
+            <li>
+              <strong>10-K Forms:</strong> Download annual reports that give a comprehensive overview of the company's business and financial condition
+            </li>
+            <li>
+              <strong>8-K Forms:</strong> Download current reports that announce major events or corporate changes
+            </li>
+            <li>
+              <strong>DEF 14A Forms:</strong> Download proxy statements that contain information about executive compensation, board members, and shareholder voting matters
+            </li>
+          </ul>
+          <p className="integration-note">
+            📊 All downloaded filings are automatically processed and integrated with Microsoft Graph, 
+            making the financial data searchable and accessible through your organization's tools.
+          </p>
+        </div>
+      </section>
+      
       <main className="main-content">
         <CompanySelector
           companies={companies}
