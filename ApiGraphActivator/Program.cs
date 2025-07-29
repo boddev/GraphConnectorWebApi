@@ -76,6 +76,19 @@ var staticServiceLogger = loggerFactory.CreateLogger("ApiGraphActivator.Services
 EdgarService.InitializeLogger(staticServiceLogger);
 ConnectionService.InitializeLogger(staticServiceLogger);
 
+// Initialize storage service for EdgarService
+var storageConfigService = app.Services.GetRequiredService<StorageConfigurationService>();
+try
+{
+    var storageService = await storageConfigService.GetStorageServiceAsync();
+    await EdgarService.InitializeStorageServiceAsync(storageService);
+    staticServiceLogger.LogInformation("Storage service initialized for EdgarService");
+}
+catch (Exception ex)
+{
+    staticServiceLogger.LogWarning("Failed to initialize storage service: {Message}", ex.Message);
+}
+
 // Log a test message to verify Application Insights is working
 staticServiceLogger.LogInformation("Application started and Application Insights is configured.");
 
@@ -303,6 +316,93 @@ app.MapPost("/storage-config/test", async (StorageConfiguration config, StorageC
     }
 })
 .WithName("TestStorageConfig")
+.WithOpenApi();
+
+// Crawl Tracking and Metrics Endpoints
+app.MapGet("/crawl-metrics", async (StorageConfigurationService storageConfigService) =>
+{
+    try
+    {
+        var overallMetrics = await storageConfigService.GetOverallMetricsAsync();
+        return Results.Ok(overallMetrics);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error fetching overall crawl metrics: {Message}", ex.Message);
+        return Results.Problem($"Error fetching crawl metrics: {ex.Message}");
+    }
+})
+.WithName("GetCrawlMetrics")
+.WithOpenApi();
+
+app.MapGet("/crawl-metrics/{companyName}", async (string companyName, StorageConfigurationService storageConfigService) =>
+{
+    try
+    {
+        var storageService = await storageConfigService.GetStorageServiceAsync();
+        await storageService.InitializeAsync();
+        var companyMetrics = await storageService.GetCrawlMetricsAsync(companyName);
+        return Results.Ok(companyMetrics);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error fetching crawl metrics for company {Company}: {Message}", companyName, ex.Message);
+        return Results.Problem($"Error fetching crawl metrics for {companyName}: {ex.Message}");
+    }
+})
+.WithName("GetCompanyCrawlMetrics")
+.WithOpenApi();
+
+app.MapGet("/crawl-errors", async (StorageConfigurationService storageConfigService, string? company = null) =>
+{
+    try
+    {
+        var storageService = await storageConfigService.GetStorageServiceAsync();
+        await storageService.InitializeAsync();
+        var errors = await storageService.GetProcessingErrorsAsync(company);
+        return Results.Ok(errors);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error fetching processing errors: {Message}", ex.Message);
+        return Results.Problem($"Error fetching processing errors: {ex.Message}");
+    }
+})
+.WithName("GetProcessingErrors")
+.WithOpenApi();
+
+app.MapGet("/crawl-status", async (StorageConfigurationService storageConfigService) =>
+{
+    try
+    {
+        var storageService = await storageConfigService.GetStorageServiceAsync();
+        await storageService.InitializeAsync();
+        
+        var overallMetrics = await storageService.GetCrawlMetricsAsync();
+        var unprocessedDocs = await storageService.GetUnprocessedAsync();
+        
+        var status = new
+        {
+            TotalDocuments = overallMetrics.TotalDocuments,
+            ProcessedDocuments = overallMetrics.ProcessedDocuments,
+            SuccessfulDocuments = overallMetrics.SuccessfulDocuments,
+            FailedDocuments = overallMetrics.FailedDocuments,
+            PendingDocuments = unprocessedDocs.Count,
+            SuccessRate = overallMetrics.SuccessRate,
+            LastProcessedDate = overallMetrics.LastProcessedDate,
+            StorageType = storageService.GetStorageType(),
+            IsHealthy = await storageService.IsHealthyAsync()
+        };
+        
+        return Results.Ok(status);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error fetching crawl status: {Message}", ex.Message);
+        return Results.Problem($"Error fetching crawl status: {ex.Message}");
+    }
+})
+.WithName("GetCrawlStatus")
 .WithOpenApi();
 
 app.Run();

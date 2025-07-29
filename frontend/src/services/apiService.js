@@ -73,7 +73,7 @@ export const provisionConnection = async (tenantId) => {
 // Service to check crawl status (if needed)
 export const getCrawlStatus = async () => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/status`);
+    const response = await axios.get(`${API_BASE_URL}/crawl-status`);
     return response.data;
   } catch (error) {
     console.error('Error getting crawl status:', error);
@@ -112,8 +112,44 @@ export const testStorageConfig = async (config) => {
   }
 };
 
+// New methods for crawl metrics
+export const getCrawlMetrics = async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/crawl-metrics`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching crawl metrics:', error);
+    throw new Error('Failed to fetch crawl metrics');
+  }
+};
+
+export const getCompanyCrawlMetrics = async (companyName) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/crawl-metrics/${encodeURIComponent(companyName)}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching company crawl metrics:', error);
+    throw new Error('Failed to fetch company crawl metrics');
+  }
+};
+
+export const getCrawlErrors = async (companyName = null) => {
+  try {
+    const url = companyName 
+      ? `${API_BASE_URL}/crawl-errors?company=${encodeURIComponent(companyName)}`
+      : `${API_BASE_URL}/crawl-errors`;
+    const response = await axios.get(url);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching crawl errors:', error);
+    throw new Error('Failed to fetch crawl errors');
+  }
+};
+
 // Export as default object for easier importing
-export const apiService = {
+const apiService = {
+  get: axios.get,
+  post: axios.post,
   fetchCompanyTickers,
   fetchCrawledCompanies,
   triggerCrawl,
@@ -121,5 +157,11 @@ export const apiService = {
   getCrawlStatus,
   getStorageConfig,
   saveStorageConfig,
-  testStorageConfig
+  testStorageConfig,
+  getCrawlMetrics,
+  getCompanyCrawlMetrics,
+  getCrawlErrors
 };
+
+export { apiService };
+export default apiService;

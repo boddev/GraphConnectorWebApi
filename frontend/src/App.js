@@ -3,6 +3,7 @@ import CompanySelector from './components/CompanySelector';
 import CrawlControls from './components/CrawlControls';
 import CrawlHistory from './components/CrawlHistory';
 import StorageConfig from './components/StorageConfig';
+import CrawlMetricsDashboard from './components/CrawlMetricsDashboard';
 import { fetchCompanyTickers, fetchCrawledCompanies, triggerCrawl } from './services/apiService';
 
 function App() {
@@ -13,6 +14,7 @@ function App() {
   const [error, setError] = useState('');
   const [crawling, setCrawling] = useState(false);
   const [showStorageConfig, setShowStorageConfig] = useState(false);
+  const [activeTab, setActiveTab] = useState('crawl'); // 'crawl' or 'metrics'
 
   // Load company data and crawl history on component mount
   useEffect(() => {
@@ -105,24 +107,46 @@ function App() {
         </div>
       </section>
       
+      {/* Tab Navigation */}
+      <div className="tab-navigation">
+        <button 
+          className={`tab-button ${activeTab === 'crawl' ? 'active' : ''}`}
+          onClick={() => setActiveTab('crawl')}
+        >
+          📥 Crawl Management
+        </button>
+        <button 
+          className={`tab-button ${activeTab === 'metrics' ? 'active' : ''}`}
+          onClick={() => setActiveTab('metrics')}
+        >
+          📊 Metrics Dashboard
+        </button>
+      </div>
+      
       <main className="main-content">
-        <CompanySelector
-          companies={companies}
-          selectedCompanies={selectedCompanies}
-          onSelectionChange={handleSelectionChange}
-          loading={loading}
-          error={error}
-        />
-        
-        <CrawlControls
-          selectedCompanies={selectedCompanies}
-          onTriggerCrawl={handleTriggerCrawl}
-          crawling={crawling}
-        />
+        {activeTab === 'crawl' ? (
+          <>
+            <CompanySelector
+              companies={companies}
+              selectedCompanies={selectedCompanies}
+              onSelectionChange={handleSelectionChange}
+              loading={loading}
+              error={error}
+            />
+            
+            <CrawlControls
+              selectedCompanies={selectedCompanies}
+              onTriggerCrawl={handleTriggerCrawl}
+              crawling={crawling}
+            />
 
-        <CrawlHistory 
-          crawledHistory={crawledHistory}
-        />
+            <CrawlHistory 
+              crawledHistory={crawledHistory}
+            />
+          </>
+        ) : (
+          <CrawlMetricsDashboard />
+        )}
       </main>
 
       {/* Storage Configuration Modal */}

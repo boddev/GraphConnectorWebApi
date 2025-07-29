@@ -15,17 +15,38 @@ public static class ConfigurationService
     {
         try
         {
+            // Load existing companies first
+            var existingConfig = await LoadCrawledCompaniesAsync();
+            var existingCompanies = existingConfig?.Companies ?? new List<Company>();
+            
+            // Merge new companies with existing ones (avoid duplicates based on CIK)
+            var mergedCompanies = new List<Company>(existingCompanies);
+            
+            foreach (var newCompany in companies)
+            {
+                // Check if company already exists (by CIK)
+                if (!mergedCompanies.Any(c => c.Cik == newCompany.Cik))
+                {
+                    mergedCompanies.Add(newCompany);
+                    Console.WriteLine($"Added new company: {newCompany.Ticker} - {newCompany.Title}");
+                }
+                else
+                {
+                    Console.WriteLine($"Company already exists: {newCompany.Ticker} - {newCompany.Title}");
+                }
+            }
+
             var config = new CrawlConfiguration
             {
                 LastCrawlDate = DateTime.UtcNow,
-                Companies = companies,
-                TotalCompanies = companies.Count
+                Companies = mergedCompanies,
+                TotalCompanies = mergedCompanies.Count
             };
 
             var jsonString = JsonSerializer.Serialize(config, JsonOptions);
             await File.WriteAllTextAsync(ConfigFilePath, jsonString);
             
-            Console.WriteLine($"Saved {companies.Count} companies to config file: {ConfigFilePath}");
+            Console.WriteLine($"Saved {mergedCompanies.Count} total companies to config file (added {companies.Count} in this crawl): {ConfigFilePath}");
         }
         catch (Exception ex)
         {
@@ -60,6 +81,18 @@ public static class ConfigurationService
     {
         var config = await LoadCrawledCompaniesAsync();
         return config?.Companies ?? new List<Company>();
+    }
+
+    public static async Task<int> GetTotalCrawledCompaniesCountAsync()
+    {
+        var config = await LoadCrawledCompaniesAsync();
+        return config?.TotalCompanies ?? 0;
+    }
+
+    public static async Task<DateTime?> GetLastCrawlDateAsync()
+    {
+        var config = await LoadCrawledCompaniesAsync();
+        return config?.LastCrawlDate;
     }
 }
 

@@ -88,7 +88,7 @@ public class AzureStorageService : ICrawlStorageService
         }
     }
 
-    public async Task MarkProcessedAsync(string url)
+    public async Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null)
     {
         if (_tableClient == null)
         {
@@ -105,8 +105,11 @@ public class AzureStorageService : ICrawlStorageService
             {
                 var entityToUpdate = results[0];
                 entityToUpdate["Processed"] = true;
+                entityToUpdate["ProcessedDate"] = DateTime.UtcNow;
+                entityToUpdate["Success"] = success;
+                entityToUpdate["ErrorMessage"] = errorMessage ?? "";
                 await _tableClient.UpdateEntityAsync(entityToUpdate, Azure.ETag.All);
-                _logger.LogTrace("Marked document as processed: {Url}", url);
+                _logger.LogTrace("Marked document as processed: {Url} - Success: {Success}", url, success);
             }
         }
         catch (Exception ex)
@@ -126,22 +129,107 @@ public class AzureStorageService : ICrawlStorageService
         try
         {
             string filter = "Processed eq false";
-            var results = _tableClient.Query<TableEntity>(filter).ToList();
+            var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
             
             return results.Select(entity => new DocumentInfo
             {
                 Id = entity.RowKey,
-                CompanyName = entity.GetString("CompanyName"),
-                Form = entity.GetString("Form"),
-                FilingDate = DateTime.Parse(entity.GetString("FilingDate")),
-                Url = entity.GetString("Url"),
-                Processed = entity.GetBoolean("Processed") ?? false
+                CompanyName = entity.GetString("CompanyName") ?? "",
+                Form = entity.GetString("Form") ?? "",
+                FilingDate = DateTime.Parse(entity.GetString("FilingDate") ?? DateTime.MinValue.ToString()),
+                Url = entity.GetString("Url") ?? "",
+                Processed = entity.GetBoolean("Processed") ?? false,
+                ProcessedDate = entity.ContainsKey("ProcessedDate") ? entity.GetDateTimeOffset("ProcessedDate")?.DateTime : null,
+                Success = entity.GetBoolean("Success") ?? true,
+                ErrorMessage = entity.GetString("ErrorMessage")
             }).ToList();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get unprocessed documents");
             return new List<DocumentInfo>();
+        }
+    }
+
+    public async Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null)
+    {
+        if (_tableClient == null)
+        {
+            _logger.LogWarning("Azure Table Storage not initialized. Returning empty metrics.");
+            return new CrawlMetrics { CompanyName = companyName ?? "All Companies" };
+        }
+
+        try
+        {
+            string filter = string.IsNullOrEmpty(companyName) ? "" : $"CompanyName eq '{companyName}'";
+            var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
+            
+            var documents = results.Select(entity => new DocumentInfo
+            {
+                Id = entity.RowKey,
+                CompanyName = entity.GetString("CompanyName") ?? "",
+                Form = entity.GetString("Form") ?? "",
+                FilingDate = DateTime.Parse(entity.GetString("FilingDate") ?? DateTime.MinValue.ToString()),
+                Url = entity.GetString("Url") ?? "",
+                Processed = entity.GetBoolean("Processed") ?? false,
+                ProcessedDate = entity.ContainsKey("ProcessedDate") ? entity.GetDateTimeOffset("ProcessedDate")?.DateTime : null,
+                Success = entity.GetBoolean("Success") ?? true,
+                ErrorMessage = entity.GetString("ErrorMessage")
+            }).ToList();
+
+            var metrics = new CrawlMetrics
+            {
+                CompanyName = companyName ?? "All Companies",
+                TotalDocuments = documents.Count,
+                ProcessedDocuments = documents.Count(d => d.Processed),
+                SuccessfulDocuments = documents.Count(d => d.Processed && d.Success),
+                FailedDocuments = documents.Count(d => d.Processed && !d.Success),
+                LastProcessedDate = documents.Where(d => d.ProcessedDate.HasValue).Max(d => d.ProcessedDate),
+                FormTypeCounts = documents.GroupBy(d => d.Form).ToDictionary(g => g.Key, g => g.Count())
+            };
+
+            return metrics;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get crawl metrics for company: {Company}", companyName);
+            throw;
+        }
+    }
+
+    public async Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null)
+    {
+        if (_tableClient == null)
+        {
+            _logger.LogWarning("Azure Table Storage not initialized. Returning empty error list.");
+            return new List<ProcessingError>();
+        }
+
+        try
+        {
+            string filter = "Success eq false and ErrorMessage ne ''";
+            if (!string.IsNullOrEmpty(companyName))
+            {
+                filter += $" and CompanyName eq '{companyName}'";
+            }
+            
+            var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
+            
+            return results.Select(entity => new ProcessingError
+            {
+                CompanyName = entity.GetString("CompanyName") ?? "",
+                Form = entity.GetString("Form") ?? "",
+                Url = entity.GetString("Url") ?? "",
+                ErrorMessage = entity.GetString("ErrorMessage") ?? "",
+                ErrorDate = entity.ContainsKey("ProcessedDate") ? 
+                    (entity.GetDateTimeOffset("ProcessedDate")?.DateTime ?? DateTime.UtcNow) : 
+                    DateTime.UtcNow
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get processing errors for company: {Company}", companyName);
+            throw;
         }
     }
 

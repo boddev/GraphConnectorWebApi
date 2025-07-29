@@ -96,4 +96,62 @@ public class StorageConfigurationService
                 config)
         };
     }
+
+    public async Task<ICrawlStorageService> GetStorageServiceAsync()
+    {
+        var config = await GetConfigurationAsync();
+        return CreateStorageService(config);
+    }
+
+    public async Task<OverallCrawlMetrics> GetOverallMetricsAsync()
+    {
+        try
+        {
+            var storageService = await GetStorageServiceAsync();
+            await storageService.InitializeAsync();
+            
+            // Get metrics for all companies
+            var overallMetrics = await storageService.GetCrawlMetricsAsync();
+            
+            // Get individual company metrics to build comprehensive overview
+            var crawledCompanies = await ConfigurationService.LoadCrawledCompaniesAsync();
+            var companyMetrics = new List<CrawlMetrics>();
+            
+            if (crawledCompanies?.Companies != null)
+            {
+                foreach (var company in crawledCompanies.Companies)
+                {
+                    try
+                    {
+                        var companyMetric = await storageService.GetCrawlMetricsAsync(company.Title);
+                        if (companyMetric.TotalDocuments > 0)
+                        {
+                            companyMetrics.Add(companyMetric);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to get metrics for company: {Company}", company.Title);
+                    }
+                }
+            }
+
+            return new OverallCrawlMetrics
+            {
+                TotalCompanies = companyMetrics.Count,
+                TotalDocuments = overallMetrics.TotalDocuments,
+                ProcessedDocuments = overallMetrics.ProcessedDocuments,
+                SuccessfulDocuments = overallMetrics.SuccessfulDocuments,
+                FailedDocuments = overallMetrics.FailedDocuments,
+                LastCrawlDate = crawledCompanies?.LastCrawlDate,
+                CompanyMetrics = companyMetrics,
+                FormTypeCounts = overallMetrics.FormTypeCounts
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get overall crawl metrics");
+            throw;
+        }
+    }
 }

@@ -18,6 +18,7 @@ public static class EdgarService
     private static ILogger? _logger;
     private static TableClient? _tableClient;
     private static BlobServiceClient? _blobServiceClient;
+    private static ICrawlStorageService? _storageService;
     static string? connectionString;
     static string? companyName;
     static string? companySymbol;
@@ -307,14 +308,16 @@ public static class EdgarService
                         retVal = await FetchWithExponentialBackoff(urlField).ConfigureAwait(false);
                         if(retVal == "FAILED")
                         {
-                            _logger.LogError($"Failed to fetch URL {urlField} after multiple retries.");
+                            _logger?.LogError($"Failed to fetch URL {urlField} after multiple retries.");
+                            await UpdateProcessedItem(urlField, false, "Failed to fetch URL after multiple retries");
                             continue;
                         }
-                        _logger.LogTrace($"Fetched {urlField}");
+                        _logger?.LogTrace($"Fetched {urlField}");
 
                         if(urlField.Contains(".pdf"))
                         {
-                            _logger.LogTrace($"PDF document found. Skipping {urlField}.");
+                            _logger?.LogTrace($"PDF document found. Skipping {urlField}.");
+                            await UpdateProcessedItem(urlField, false, "PDF document - not supported");
                             continue;
                         }
 
@@ -364,12 +367,22 @@ public static class EdgarService
 
                         EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, response);
                         ContentService.Transform(edgarExternalItem);
+                        
+                        // Mark document as successfully processed
+                        await UpdateProcessedItem(urlField, true, null);
+                        _logger?.LogTrace($"Successfully processed document: {urlField}");
+                        
                         //externalItemData.Add(edgarExternalItem);
                     }
                 }
                 catch(Exception ex)
                 {
-                    _logger.LogError($"Error processing unprocessed data: {ex.Message}");
+                    _logger?.LogError($"Error processing unprocessed data: {ex.Message}");
+                    // Mark document as failed if we have the URL
+                    if (!string.IsNullOrEmpty(urlField))
+                    {
+                        await UpdateProcessedItem(urlField, false, $"Error processing document: {ex.Message}");
+                    }
                 }
 
             }
@@ -380,102 +393,157 @@ public static class EdgarService
     // Define a method to insert an item if it does not exist in the table
     public static async Task InsertItemIfNotExists(string companyName, string form, DateTime filingDate, string url)
     {
-        // Skip if Azure Table Storage is not available
-        if (_tableClient == null)
-        {
-            _logger?.LogTrace("Azure Table Storage not available. Skipping entity insertion.");
-            return;
-        }
-
-        if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K") || form.ToUpper().Contains("DEF 14A"))
-        {
-            _logger?.LogTrace($"Checking if exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
-        }
-        else
+        // Check if the form is one of the specified types
+        if (!(form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K") || form.ToUpper().Contains("DEF 14A")))
         {
             _logger?.LogTrace($"Skipping non-10-K/10-Q/8-K/DEF 14A form: {form}");
             return;
         }
 
-        // Define the query filter
-        string filter = $"Url eq '{url}'";
-
-        // Execute the query
-        List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
-
-        if (results.Count == 0)
+        try
         {
-            // Create a new entity
-            var newEntity = new TableEntity
+            // Use new storage service if available, otherwise fall back to old Azure Table Storage
+            if (_storageService != null)
             {
-                PartitionKey = companyName,
-                RowKey = Guid.NewGuid().ToString(),
-                ["CompanyName"] = companyName,
-                ["Form"] = form,
-                ["FilingDate"] = filingDate.ToShortDateString(),
-                ["Url"] = url,
-                ["Processed"] = false
-            };
-
-            try
-            {
-                // Insert the new entity
-                await _tableClient.AddEntityAsync(newEntity).ConfigureAwait(false);
-                _logger?.LogTrace($"Inserted new entity: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+                await _storageService.TrackDocumentAsync(companyName, form, filingDate, url);
+                _logger?.LogTrace($"Tracked document via storage service: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
             }
-            catch (Exception ex)
+            else
             {
-                _logger?.LogError($"Error inserting entity: {ex.Message}");
+                // Legacy Azure Table Storage fallback
+                // Skip if Azure Table Storage is not available
+                if (_tableClient == null)
+                {
+                    _logger?.LogTrace("No storage service available. Skipping entity insertion.");
+                    return;
+                }
+
+                _logger?.LogTrace($"Checking if exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+
+                // Define the query filter
+                string filter = $"Url eq '{url}'";
+
+                // Execute the query
+                List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
+
+                if (results.Count == 0)
+                {
+                    // Create a new entity
+                    var newEntity = new TableEntity
+                    {
+                        PartitionKey = companyName,
+                        RowKey = Guid.NewGuid().ToString(),
+                        ["CompanyName"] = companyName,
+                        ["Form"] = form,
+                        ["FilingDate"] = filingDate.ToShortDateString(),
+                        ["Url"] = url,
+                        ["Processed"] = false
+                    };
+
+                    // Insert the new entity
+                    await _tableClient.AddEntityAsync(newEntity).ConfigureAwait(false);
+                    _logger?.LogTrace($"Inserted new entity: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+                }
+                else
+                {
+                    _logger?.LogTrace($"Entity already exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+                }
             }
         }
-        else
+        catch (Exception ex)
         {
-            _logger?.LogTrace($"Entity already exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+            _logger?.LogError($"Error tracking document: {ex.Message}");
         }
     }
 
     // Define a method to update the processed item in the table
-    public static async Task UpdateProcessedItem(string url)
+    public static async Task UpdateProcessedItem(string url, bool success = true, string? errorMessage = null)
     {
-        // Skip if Azure Table Storage is not available
-        if (_tableClient == null)
+        try
         {
-            _logger?.LogTrace("Azure Table Storage not available. Skipping processed item update.");
-            return;
-        }
+            // Use new storage service if available, otherwise fall back to old Azure Table Storage
+            if (_storageService != null)
+            {
+                await _storageService.MarkProcessedAsync(url, success, errorMessage);
+                _logger?.LogTrace($"Marked document as processed via storage service: Url={url}, Success={success}");
+            }
+            else
+            {
+                // Legacy Azure Table Storage fallback
+                // Skip if Azure Table Storage is not available
+                if (_tableClient == null)
+                {
+                    _logger?.LogTrace("No storage service available. Skipping processed item update.");
+                    return;
+                }
 
-        // Define the query filter
-        string filter = $"Url eq '{url}'";
-        // Execute the query
-        List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
-        if (results.Count > 0)
+                // Define the query filter
+                string filter = $"Url eq '{url}'";
+                // Execute the query
+                List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
+                if (results.Count > 0)
+                {
+                    _logger?.LogTrace($"Found entity to update: Url={url}");
+                    // Update the "Processed" property of the first entity found
+                    var entityToUpdate = results[0];
+                    entityToUpdate["Processed"] = true;
+                    // Update the entity in the table
+                    await _tableClient.UpdateEntityAsync(entityToUpdate, Azure.ETag.All).ConfigureAwait(false);
+                    _logger?.LogTrace($"Updated entity: Url={url}");
+                }
+            }
+        }
+        catch (Exception ex)
         {
-            _logger?.LogTrace($"Found entity to update: Url={url}");
-            // Update the "Processed" property of the first entity found
-            var entityToUpdate = results[0];
-            entityToUpdate["Processed"] = true;
-            // Update the entity in the table
-            await _tableClient.UpdateEntityAsync(entityToUpdate, Azure.ETag.All).ConfigureAwait(false);
-            _logger?.LogTrace($"Updated entity: Url={url}");
+            _logger?.LogError($"Error updating processed item: {ex.Message}");
         }
     }
 
     // Define a method to query unprocessed data from the table
     public static async Task<List<TableEntity>> QueryUnprocessedData()
     {
-        // Return empty list if Azure Table Storage is not available
-        if (_tableClient == null)
+        try
         {
-            _logger?.LogTrace("Azure Table Storage not available. Returning empty unprocessed data list.");
+            // Use new storage service if available
+            if (_storageService != null)
+            {
+                var unprocessedDocuments = await _storageService.GetUnprocessedAsync();
+                _logger?.LogTrace($"Found {unprocessedDocuments.Count} unprocessed documents via storage service");
+                
+                // Convert to TableEntity format for compatibility with existing code
+                return unprocessedDocuments.Select(doc => new TableEntity
+                {
+                    PartitionKey = doc.CompanyName,
+                    RowKey = doc.Id,
+                    ["CompanyName"] = doc.CompanyName,
+                    ["Form"] = doc.Form,
+                    ["FilingDate"] = doc.FilingDate.ToString(),
+                    ["Url"] = doc.Url,
+                    ["Processed"] = doc.Processed
+                }).ToList();
+            }
+            else
+            {
+                // Legacy Azure Table Storage fallback
+                if (_tableClient == null)
+                {
+                    _logger?.LogTrace("No storage service available. Returning empty list.");
+                    return new List<TableEntity>();
+                }
+
+                // Define the query filter
+                string filter = "Processed eq false";
+                // Execute the query
+                var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
+                _logger?.LogTrace($"Found {results.Count} unprocessed documents via Azure Table Storage");
+                return results;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError($"Error querying unprocessed data: {ex.Message}");
             return new List<TableEntity>();
         }
-
-        // Define the query filter
-        string filter = $"Processed eq false";
-
-        // Execute the query
-        List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
-        return results;
     }
 
     // Define a method to fetch data with exponential backoff
@@ -536,5 +604,13 @@ public static class EdgarService
     public static void InitializeLogger(ILogger logger)
     {
         _logger = logger;
+    }
+
+    // Initialize the storage service for document tracking
+    public static async Task InitializeStorageServiceAsync(ICrawlStorageService storageService)
+    {
+        _storageService = storageService;
+        await _storageService.InitializeAsync();
+        _logger?.LogInformation("EdgarService storage service initialized: {StorageType}", _storageService.GetStorageType());
     }
 }

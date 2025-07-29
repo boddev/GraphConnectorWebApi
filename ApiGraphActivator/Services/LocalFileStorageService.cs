@@ -78,7 +78,7 @@ public class LocalFileStorageService : ICrawlStorageService
         }
     }
 
-    public async Task MarkProcessedAsync(string url)
+    public async Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null)
     {
         try
         {
@@ -88,8 +88,11 @@ public class LocalFileStorageService : ICrawlStorageService
             if (document != null)
             {
                 document.Processed = true;
+                document.ProcessedDate = DateTime.UtcNow;
+                document.Success = success;
+                document.ErrorMessage = errorMessage;
                 await SaveDocumentsAsync(documents);
-                _logger.LogTrace("Marked document as processed: {Url}", url);
+                _logger.LogTrace("Marked document as processed: {Url} - Success: {Success}", url, success);
             }
         }
         catch (Exception ex)
@@ -112,11 +115,81 @@ public class LocalFileStorageService : ICrawlStorageService
         }
     }
 
+    public async Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null)
+    {
+        try
+        {
+            var documents = await LoadDocumentsAsync();
+            
+            if (!string.IsNullOrEmpty(companyName))
+            {
+                documents = documents.Where(d => d.CompanyName.Equals(companyName, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+
+            var metrics = new CrawlMetrics
+            {
+                CompanyName = companyName ?? "All Companies",
+                TotalDocuments = documents.Count,
+                ProcessedDocuments = documents.Count(d => d.Processed),
+                SuccessfulDocuments = documents.Count(d => d.Processed && d.Success),
+                FailedDocuments = documents.Count(d => d.Processed && !d.Success),
+                LastProcessedDate = documents.Where(d => d.ProcessedDate.HasValue).Max(d => d.ProcessedDate),
+                FormTypeCounts = documents.GroupBy(d => d.Form).ToDictionary(g => g.Key, g => g.Count())
+            };
+
+            return metrics;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get crawl metrics for company: {Company}", companyName);
+            throw;
+        }
+    }
+
+    public async Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null)
+    {
+        try
+        {
+            var documents = await LoadDocumentsAsync();
+            var errorDocs = documents.Where(d => d.Processed && !d.Success && !string.IsNullOrEmpty(d.ErrorMessage));
+            
+            if (!string.IsNullOrEmpty(companyName))
+            {
+                errorDocs = errorDocs.Where(d => d.CompanyName.Equals(companyName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            return errorDocs.Select(d => new ProcessingError
+            {
+                CompanyName = d.CompanyName,
+                Form = d.Form,
+                Url = d.Url,
+                ErrorMessage = d.ErrorMessage!,
+                ErrorDate = d.ProcessedDate ?? DateTime.UtcNow
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get processing errors for company: {Company}", companyName);
+            throw;
+        }
+    }
+
     public async Task<bool> IsHealthyAsync()
     {
         try
         {
-            return Directory.Exists(_dataPath) && File.Exists(_documentsFile);
+            await Task.Run(() => {
+                // Check directory and file existence
+                return Directory.Exists(_dataPath) && File.Exists(_documentsFile);
+            });
+            
+            // Test read/write access
+            var testFile = Path.Combine(_dataPath, "health_check.txt");
+            await File.WriteAllTextAsync(testFile, "health_check");
+            var content = await File.ReadAllTextAsync(testFile);
+            File.Delete(testFile);
+            
+            return content == "health_check";
         }
         catch
         {
