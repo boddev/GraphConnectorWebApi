@@ -66,6 +66,10 @@ builder.Services.AddScoped<CompanySearchTool>();
 builder.Services.AddScoped<FormFilterTool>();
 builder.Services.AddScoped<ContentSearchTool>();
 
+// Register MCP document retrieval tools
+builder.Services.AddScoped<DocumentRetrievalTool>();
+builder.Services.AddScoped<DocumentByIdTool>();
+
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
@@ -661,8 +665,46 @@ app.MapPost("/mcp/tools/content-search", async (ContentSearchParameters paramete
 .WithSummary("MCP Tool: Search document content")
 .WithDescription("Perform full-text search within SEC filing document content with highlighting and relevance scoring");
 
+// MCP Document Retrieval Tool Endpoints
+app.MapPost("/mcp/tools/retrieve-document", async (DocumentRetrievalParameters parameters, DocumentRetrievalTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing document retrieval tool: {Message}", ex.Message);
+        return Results.Problem($"Document retrieval failed: {ex.Message}");
+    }
+})
+.WithName("McpDocumentRetrieval")
+.WithOpenApi()
+.WithSummary("MCP Tool: Retrieve document by URL")
+.WithDescription("Retrieve a specific SEC filing document by URL and extract its content and metadata");
+
+app.MapPost("/mcp/tools/retrieve-document-by-id", async (DocumentByIdParameters parameters, DocumentByIdTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing document by ID tool: {Message}", ex.Message);
+        return Results.Problem($"Document by ID retrieval failed: {ex.Message}");
+    }
+})
+.WithName("McpDocumentByIdRetrieval")
+.WithOpenApi()
+.WithSummary("MCP Tool: Retrieve document by filing ID")
+.WithDescription("Retrieve a specific SEC filing document by filing ID, searching stored documents first then retrieving content");
+
 // MCP Tools Discovery Endpoint
-app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool, ContentSearchTool contentTool) =>
+app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool, ContentSearchTool contentTool, 
+    DocumentRetrievalTool retrievalTool, DocumentByIdTool byIdTool) =>
 {
     var tools = new[]
     {
@@ -686,6 +728,20 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
             description = contentTool.Description,
             inputSchema = contentTool.InputSchema,
             endpoint = "/mcp/tools/content-search"
+        },
+        new
+        {
+            name = retrievalTool.Name,
+            description = retrievalTool.Description,
+            inputSchema = retrievalTool.InputSchema,
+            endpoint = "/mcp/tools/retrieve-document"
+        },
+        new
+        {
+            name = byIdTool.Name,
+            description = byIdTool.Description,
+            inputSchema = byIdTool.InputSchema,
+            endpoint = "/mcp/tools/retrieve-document-by-id"
         }
     };
 
@@ -694,6 +750,6 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
 .WithName("McpToolsDiscovery")
 .WithOpenApi()
 .WithSummary("MCP Tools Discovery")
-.WithDescription("List all available MCP document search tools with their schemas and endpoints");
+.WithDescription("List all available MCP document search and retrieval tools with their schemas and endpoints");
 
 app.Run();
