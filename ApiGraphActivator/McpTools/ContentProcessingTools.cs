@@ -76,6 +76,12 @@ public class DocumentSummarizationTool : McpToolBase
         {
             _logger.LogInformation("Starting document summarization");
             
+            // Check if OpenAI is configured
+            if (!_openAIService.IsConfigured)
+            {
+                return McpToolResponse<DocumentSummarizationResult>.Error("OpenAI service is not configured. Please set the OpenAIKey environment variable.");
+            }
+            
             // Validate parameters
             var validationContext = new ValidationContext(parameters);
             var validationResults = new List<ValidationResult>();
@@ -305,6 +311,12 @@ public class KeyInformationExtractionTool : McpToolBase
         try
         {
             _logger.LogInformation("Starting key information extraction: {Type}", parameters.ExtractionType);
+            
+            // Check if OpenAI is configured
+            if (!_openAIService.IsConfigured)
+            {
+                return McpToolResponse<KeyInformationExtractionResult>.Error("OpenAI service is not configured. Please set the OpenAIKey environment variable.");
+            }
             
             // Validate parameters
             var validationContext = new ValidationContext(parameters);
@@ -594,6 +606,12 @@ public class FinancialDataExtractionTool : McpToolBase
         try
         {
             _logger.LogInformation("Starting financial data extraction");
+            
+            // Check if OpenAI is configured
+            if (!_openAIService.IsConfigured)
+            {
+                return McpToolResponse<FinancialDataExtractionResult>.Error("OpenAI service is not configured. Please set the OpenAIKey environment variable.");
+            }
             
             // Validate parameters
             var validationContext = new ValidationContext(parameters);

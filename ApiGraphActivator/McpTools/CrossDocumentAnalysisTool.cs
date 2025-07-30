@@ -77,6 +77,12 @@ public class CrossDocumentRelationshipTool : McpToolBase
         {
             _logger.LogInformation("Starting cross-document relationship analysis: {Type}", parameters.AnalysisType);
             
+            // Check if OpenAI is configured
+            if (!_openAIService.IsConfigured)
+            {
+                return McpToolResponse<CrossDocumentRelationshipResult>.Error("OpenAI service is not configured. Please set the OpenAIKey environment variable.");
+            }
+            
             // Validate parameters
             var validationContext = new ValidationContext(parameters);
             var validationResults = new List<ValidationResult>();

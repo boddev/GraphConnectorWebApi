@@ -12,18 +12,33 @@ public class OpenAIService
     private readonly Uri _endpoint = new Uri("https://bodopenai-eus.openai.azure.com/");
     private readonly string _model = "gpt-4o-mini";
     private readonly string _deploymentName = "gpt-4o-mini";
-    private readonly string _apiKey = Environment.GetEnvironmentVariable("OpenAIKey");
-    private readonly AzureOpenAIClient _azureClient;
+    private readonly string? _apiKey = Environment.GetEnvironmentVariable("OpenAIKey");
+    private readonly AzureOpenAIClient? _azureClient;
+    private readonly bool _isConfigured;
 
     public OpenAIService()
     {
-        _azureClient = new AzureOpenAIClient(
-            _endpoint,
-            new AzureKeyCredential(_apiKey));
+        _isConfigured = !string.IsNullOrEmpty(_apiKey);
+        if (_isConfigured)
+        {
+            _azureClient = new AzureOpenAIClient(
+                _endpoint,
+                new AzureKeyCredential(_apiKey!));
+        }
     }
 
     public string GetChatResponse(string userInput)
     {
+        if (!_isConfigured)
+        {
+            return "OpenAI service is not configured. Please set the OpenAIKey environment variable.";
+        }
+
+        if (_azureClient == null)
+        {
+            return "OpenAI client is not available.";
+        }
+
         var chatClient = _azureClient.GetChatClient(_deploymentName);
 
         ChatCompletionOptions requestOptions = new ChatCompletionOptions()
@@ -55,4 +70,6 @@ public class OpenAIService
 
         return response.Content[0].Text;
     }
+
+    public bool IsConfigured => _isConfigured;
 }
