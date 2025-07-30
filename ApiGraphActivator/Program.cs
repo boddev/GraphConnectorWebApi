@@ -2,6 +2,7 @@ using ApiGraphActivator.Services;
 using Microsoft.Extensions.Logging.ApplicationInsights;
 using ApiGraphActivator;
 using System.Text.Json;
+using ApiGraphActivator.McpTools;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -52,6 +53,18 @@ builder.Services.AddSingleton<StorageConfigurationService>();
 builder.Services.AddSingleton<BackgroundTaskQueue>(sp => new BackgroundTaskQueue(100));
 builder.Services.AddHostedService<QueuedHostedService>();
 builder.Services.AddHostedService<SchedulerService>();
+
+// Register MCP document search services
+builder.Services.AddScoped<DocumentSearchService>(serviceProvider =>
+{
+    var logger = serviceProvider.GetRequiredService<ILogger<DocumentSearchService>>();
+    var storageConfigService = serviceProvider.GetRequiredService<StorageConfigurationService>();
+    var storageService = storageConfigService.GetStorageServiceAsync().GetAwaiter().GetResult();
+    return new DocumentSearchService(logger, storageService);
+});
+builder.Services.AddScoped<CompanySearchTool>();
+builder.Services.AddScoped<FormFilterTool>();
+builder.Services.AddScoped<ContentSearchTool>();
 
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
@@ -592,5 +605,95 @@ app.MapPost("/scheduler-config", async (HttpContext context) =>
 })
 .WithName("SaveSchedulerConfig")
 .WithOpenApi();
+
+// MCP Document Search Tool Endpoints
+app.MapPost("/mcp/tools/company-search", async (CompanySearchParameters parameters, CompanySearchTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing company search tool: {Message}", ex.Message);
+        return Results.Problem($"Company search failed: {ex.Message}");
+    }
+})
+.WithName("McpCompanySearch")
+.WithOpenApi()
+.WithSummary("MCP Tool: Search documents by company name")
+.WithDescription("Search SEC filing documents by company name with optional filtering by form types and date ranges");
+
+app.MapPost("/mcp/tools/form-filter", async (FormFilterParameters parameters, FormFilterTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing form filter tool: {Message}", ex.Message);
+        return Results.Problem($"Form filter failed: {ex.Message}");
+    }
+})
+.WithName("McpFormFilter")
+.WithOpenApi()
+.WithSummary("MCP Tool: Filter documents by form type and date")
+.WithDescription("Filter SEC filing documents by form type and date range with optional company filtering");
+
+app.MapPost("/mcp/tools/content-search", async (ContentSearchParameters parameters, ContentSearchTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing content search tool: {Message}", ex.Message);
+        return Results.Problem($"Content search failed: {ex.Message}");
+    }
+})
+.WithName("McpContentSearch")
+.WithOpenApi()
+.WithSummary("MCP Tool: Search document content")
+.WithDescription("Perform full-text search within SEC filing document content with highlighting and relevance scoring");
+
+// MCP Tools Discovery Endpoint
+app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool, ContentSearchTool contentTool) =>
+{
+    var tools = new[]
+    {
+        new
+        {
+            name = companyTool.Name,
+            description = companyTool.Description,
+            inputSchema = companyTool.InputSchema,
+            endpoint = "/mcp/tools/company-search"
+        },
+        new
+        {
+            name = formTool.Name,
+            description = formTool.Description,
+            inputSchema = formTool.InputSchema,
+            endpoint = "/mcp/tools/form-filter"
+        },
+        new
+        {
+            name = contentTool.Name,
+            description = contentTool.Description,
+            inputSchema = contentTool.InputSchema,
+            endpoint = "/mcp/tools/content-search"
+        }
+    };
+
+    return Results.Ok(new { tools });
+})
+.WithName("McpToolsDiscovery")
+.WithOpenApi()
+.WithSummary("MCP Tools Discovery")
+.WithDescription("List all available MCP document search tools with their schemas and endpoints");
 
 app.Run();

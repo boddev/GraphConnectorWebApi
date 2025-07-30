@@ -14,6 +14,14 @@ public interface ICrawlStorageService
     Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName);
     Task<bool> IsHealthyAsync();
     string GetStorageType();
+    
+    // New search methods for MCP tools
+    Task<List<DocumentInfo>> SearchByCompanyAsync(string companyName, List<string>? formTypes = null, 
+        DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50);
+    Task<List<DocumentInfo>> SearchByFormTypeAsync(List<string> formTypes, List<string>? companyNames = null,
+        DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50);
+    Task<int> GetSearchResultCountAsync(string? companyName = null, List<string>? formTypes = null,
+        DateTime? startDate = null, DateTime? endDate = null);
 }
 
 public class DocumentInfo
