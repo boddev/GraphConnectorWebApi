@@ -4,7 +4,9 @@
 
 The SEC Edgar Graph Connector Web API is a comprehensive .NET 8 web application that creates a Microsoft Graph connector to extract, process, and index SEC (Securities and Exchange Commission) filing documents into Microsoft 365 search and Copilot experiences. This solution enables organizations to make SEC filings (10-K, 10-Q, and 8-K forms) searchable through Microsoft Search and accessible via Microsoft Copilot.
 
-**🆕 NEW: React Frontend** - This solution now includes a modern React-based frontend that eliminates Azure dependencies and provides an intuitive interface for selecting companies and managing crawl operations.
+**🆕 NEW: MCP Server Integration** - This solution now includes a Model Context Protocol (MCP) server that provides structured tool-based access to SEC filing documents for AI agents and automation systems.
+
+**🆕 NEW: React Frontend** - This solution also includes a modern React-based frontend that eliminates Azure dependencies and provides an intuitive interface for selecting companies and managing crawl operations.
 
 ## What This Solution Does
 
@@ -14,6 +16,7 @@ This Graph Connector:
 - **Indexes** the processed documents into Microsoft Graph as external content
 - **Enables** searchability of SEC filings through Microsoft 365 Search and Copilot
 - **Provides** structured metadata including company information, filing dates, form types, and content
+- **🆕 Exposes MCP Tools** for direct API access to SEC documents via standardized tools
 
 ### Supported SEC Form Types
 - **10-K Reports**: Annual financial overviews providing comprehensive company performance data
@@ -27,6 +30,7 @@ This Graph Connector:
 - Background processing queue for long-running operations
 - Comprehensive logging with Application Insights
 - CORS-enabled for frontend communication
+- **🆕 MCP Server**: Structured tool-based access via Model Context Protocol
 
 ### Frontend (React)
 - **Company Selection Interface**: Search and select from 10,000+ SEC-registered companies
@@ -34,6 +38,12 @@ This Graph Connector:
 - **Bulk Operations**: Select all or individual companies for crawling
 - **Crawl Management**: Trigger and monitor background crawl operations
 - **Zero Azure Dependencies**: Uses in-memory storage instead of Azure Table Storage
+
+### 🆕 MCP Tools
+- **Company Search**: Find SEC documents by company name with filtering
+- **Form Filter**: Filter documents by SEC form type and date ranges  
+- **Content Search**: Full-text search within SEC filing content
+- **OpenAPI Specification**: Complete API documentation for integration
 
 ## Quick Start
 
@@ -61,6 +71,36 @@ This Graph Connector:
    - Frontend: http://localhost:3000
    - Backend API: https://localhost:7034
    - Swagger UI: https://localhost:7034/swagger
+   - **🆕 MCP Tools**: http://localhost:5236/mcp/tools
+
+## 🆕 MCP Server Quick Start
+
+The Model Context Protocol server provides structured access to SEC documents:
+
+```bash
+# Discover available tools
+curl http://localhost:5236/mcp/tools
+
+# Search Apple documents
+curl -X POST http://localhost:5236/mcp/tools/company-search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "companyName": "Apple Inc.",
+    "formTypes": ["10-K", "10-Q"],
+    "pageSize": 5
+  }'
+
+# Search for AI-related content
+curl -X POST http://localhost:5236/mcp/tools/content-search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "searchText": "artificial intelligence",
+    "formTypes": ["10-K"],
+    "pageSize": 5
+  }'
+```
+
+**📖 Complete MCP Documentation**: See the [MCP Documentation](./docs/README.md) for comprehensive guides, API reference, and integration examples.
 
 ## Solution Architecture
 
@@ -72,12 +112,13 @@ This Graph Connector:
 │   Database      │───▶│     Web API      │───▶│   Search &      │
 │                 │    │                  │    │    Copilot      │
 └─────────────────┘    └──────────────────┘    └─────────────────┘
-                              │
-                              ▼
-                       ┌──────────────────┐
-                       │  Azure Storage   │
-                       │  & Table Storage │
-                       └──────────────────┘
+                              │                          
+                              ├─────────────────┐        
+                              │                 ▼        
+                       ┌──────────────────┐    ┌─────────────────┐
+                       │  Azure Storage   │    │  MCP Clients    │
+                       │  & Table Storage │    │  (AI Agents)    │
+                       └──────────────────┘    └─────────────────┘
 ```
 
 ### Component Architecture
@@ -89,6 +130,7 @@ This Graph Connector:
 4. **GraphService**: Provides authenticated Microsoft Graph client
 5. **OpenAIService**: Enhances content using Azure OpenAI
 6. **LoggingService**: Centralized logging with Application Insights
+7. **🆕 DocumentSearchService**: Powers MCP tools for structured document access
 
 #### Data Flow
 1. **Extract**: Pull SEC filing data from EDGAR database
@@ -111,6 +153,10 @@ The solution exposes several REST API endpoints:
 | `/grantPermissions` | POST | Initiates admin consent flow for Graph permissions |
 | `/provisionconnection` | POST | Creates and configures the Graph connector |
 | `/loadcontent` | POST | Triggers content extraction and indexing (background process) |
+| **🆕 `/mcp/tools`** | **GET** | **Discovers available MCP tools** |
+| **🆕 `/mcp/tools/company-search`** | **POST** | **Search documents by company name** |
+| **🆕 `/mcp/tools/form-filter`** | **POST** | **Filter documents by form type and date** |
+| **🆕 `/mcp/tools/content-search`** | **POST** | **Full-text search within document content** |
 
 ## Prerequisites
 
@@ -470,6 +516,15 @@ This project is licensed under the MIT License. See LICENSE file for details.
 
 ## Additional Resources
 
+### 📖 MCP Server Documentation
+- [**Complete MCP Documentation**](./docs/README.md) - Comprehensive guides and API reference
+- [**Quick Start Tutorial**](./docs/examples/quick-start.md) - Get started in 10 minutes
+- [**OpenAPI Specification**](./docs/api/mcp-tools-openapi.yaml) - Complete API documentation
+- [**Client Integration Examples**](./docs/integration/client-integration.md) - Python, Node.js, and REST examples
+- [**Deployment Guide**](./docs/deployment/mcp-server-setup.md) - Production setup and configuration
+- [**Troubleshooting**](./docs/troubleshooting/common-issues.md) - Common issues and solutions
+
+### Microsoft Documentation
 - [Microsoft Graph Connectors Documentation](https://docs.microsoft.com/en-us/microsoftsearch/connectors-overview)
 - [SEC EDGAR Database](https://www.sec.gov/edgar/searchedgar/companysearch.html)
 - [Azure Storage Documentation](https://docs.microsoft.com/en-us/azure/storage/)

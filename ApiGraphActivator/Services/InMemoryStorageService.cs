@@ -6,6 +6,9 @@ public class InMemoryStorageService : ICrawlStorageService
 {
     private readonly ILogger<InMemoryStorageService> _logger;
     private readonly List<DocumentInfo> _documents = new();
+    private readonly List<ConversationSession> _sessions = new();
+    private readonly List<Conversation> _conversations = new();
+    private readonly List<ConversationMessage> _messages = new();
     private readonly object _lock = new object();
 
     public InMemoryStorageService(ILogger<InMemoryStorageService> logger)
@@ -337,6 +340,234 @@ public class InMemoryStorageService : ICrawlStorageService
                 }
 
                 return query.Count();
+            }
+        });
+    }
+
+
+    public async Task<DocumentInfo?> GetDocumentByIdAsync(string documentId)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                return _documents.FirstOrDefault(d => d.Id.Equals(documentId, StringComparison.OrdinalIgnoreCase));
+            }
+        });
+    }
+
+    public async Task<ConversationSession?> GetSessionAsync(string sessionId)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                return _sessions.FirstOrDefault(s => s.Id == sessionId && 
+                    (s.ExpiresAt == null || s.ExpiresAt > DateTime.UtcNow));
+            }
+        });
+    }
+
+    public async Task UpdateSessionAsync(ConversationSession session)
+    {
+        await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var existingSession = _sessions.FirstOrDefault(s => s.Id == session.Id);
+                if (existingSession != null)
+                {
+                    var index = _sessions.IndexOf(existingSession);
+                    _sessions[index] = session;
+                    _logger.LogTrace("Updated session {SessionId}", session.Id);
+                }
+            }
+        });
+    }
+
+    public async Task DeleteSessionAsync(string sessionId)
+    {
+        await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                _sessions.RemoveAll(s => s.Id == sessionId);
+                _conversations.RemoveAll(c => c.SessionId == sessionId);
+                
+                var conversationIds = _conversations.Where(c => c.SessionId == sessionId).Select(c => c.Id).ToList();
+                foreach (var convId in conversationIds)
+                {
+                    _messages.RemoveAll(m => m.ConversationId == convId);
+                }
+                
+                _logger.LogTrace("Deleted session {SessionId} and related conversations", sessionId);
+            }
+        });
+    }
+
+    public async Task<List<ConversationSession>> GetUserSessionsAsync(string userId)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                return _sessions.Where(s => s.UserId == userId && 
+                    (s.ExpiresAt == null || s.ExpiresAt > DateTime.UtcNow)).ToList();
+            }
+        });
+    }
+
+    public async Task CleanupExpiredSessionsAsync()
+    {
+        await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var expiredSessions = _sessions.Where(s => s.ExpiresAt.HasValue && s.ExpiresAt < DateTime.UtcNow).ToList();
+                
+                foreach (var session in expiredSessions)
+                {
+                    _sessions.Remove(session);
+                    _conversations.RemoveAll(c => c.SessionId == session.Id);
+                    
+                    var conversationIds = _conversations.Where(c => c.SessionId == session.Id).Select(c => c.Id).ToList();
+                    foreach (var convId in conversationIds)
+                    {
+                        _messages.RemoveAll(m => m.ConversationId == convId);
+                    }
+                }
+                
+                _logger.LogInformation("Cleaned up {Count} expired sessions", expiredSessions.Count);
+            }
+        });
+    }
+
+    public async Task<Conversation> CreateConversationAsync(string sessionId, string? title = null)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var conversation = new Conversation
+                {
+                    SessionId = sessionId,
+                    Title = title
+                };
+
+                _conversations.Add(conversation);
+                _logger.LogTrace("Created conversation {ConversationId} in session {SessionId}", 
+                    conversation.Id, sessionId);
+                return conversation;
+            }
+        });
+    }
+
+    public async Task<Conversation?> GetConversationAsync(string conversationId)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                return _conversations.FirstOrDefault(c => c.Id == conversationId);
+            }
+        });
+    }
+
+    public async Task UpdateConversationAsync(Conversation conversation)
+    {
+        await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var existingConversation = _conversations.FirstOrDefault(c => c.Id == conversation.Id);
+                if (existingConversation != null)
+                {
+                    var index = _conversations.IndexOf(existingConversation);
+                    _conversations[index] = conversation;
+                    _logger.LogTrace("Updated conversation {ConversationId}", conversation.Id);
+                }
+            }
+        });
+    }
+
+    public async Task DeleteConversationAsync(string conversationId)
+    {
+        await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                _conversations.RemoveAll(c => c.Id == conversationId);
+                _messages.RemoveAll(m => m.ConversationId == conversationId);
+                _logger.LogTrace("Deleted conversation {ConversationId} and related messages", conversationId);
+            }
+        });
+    }
+
+    public async Task<List<Conversation>> GetSessionConversationsAsync(string sessionId)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                return _conversations.Where(c => c.SessionId == sessionId)
+                    .OrderByDescending(c => c.LastMessageAt)
+                    .ToList();
+            }
+        });
+    }
+
+    public async Task<ConversationMessage> AddMessageAsync(string conversationId, ConversationMessageRole role, 
+        string content, List<DocumentCitation>? citations = null, Dictionary<string, object>? metadata = null)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var message = new ConversationMessage
+                {
+                    ConversationId = conversationId,
+                    Role = role,
+                    Content = content,
+                    Citations = citations,
+                    Metadata = metadata
+                };
+
+                _messages.Add(message);
+                _logger.LogTrace("Added {Role} message to conversation {ConversationId}", 
+                    role, conversationId);
+                return message;
+            }
+        });
+    }
+
+    public async Task<List<ConversationMessage>> GetConversationMessagesAsync(string conversationId, int skip = 0, int take = 100)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                return _messages.Where(m => m.ConversationId == conversationId)
+                    .OrderBy(m => m.Timestamp)
+                    .Skip(skip)
+                    .Take(take)
+                    .ToList();
+            }
+        });
+    }
+
+    public async Task UpdateMessageAsync(ConversationMessage message)
+    {
+        await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var existingMessage = _messages.FirstOrDefault(m => m.Id == message.Id);
+                if (existingMessage != null)
+                {
+                    var index = _messages.IndexOf(existingMessage);
+                    _messages[index] = message;
+                    _logger.LogTrace("Updated message {MessageId}", message.Id);
+                }
             }
         });
     }

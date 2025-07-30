@@ -317,4 +317,34 @@ public class DocumentSearchService
         // Default: take from beginning
         return cleanContent.Substring(0, maxLength) + "...";
     }
+
+    /// <summary>
+    /// Get a specific document by its ID
+    /// </summary>
+    public async Task<DocumentSearchResult?> GetDocumentByIdAsync(string documentId)
+    {
+        try
+        {
+            _logger.LogInformation("Retrieving document by ID: {DocumentId}", documentId);
+
+            // Get document metadata from storage
+            var documentInfo = await _storageService.GetDocumentByIdAsync(documentId);
+            if (documentInfo == null)
+            {
+                _logger.LogWarning("Document {DocumentId} not found in storage", documentId);
+                return null;
+            }
+
+            // Convert to search result with full content
+            var result = await ConvertToSearchResult(documentInfo, includeContent: true);
+            
+            _logger.LogInformation("Successfully retrieved document {DocumentId}", documentId);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving document {DocumentId}", documentId);
+            return null;
+        }
+    }
 }

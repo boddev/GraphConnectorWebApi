@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.ApplicationInsights;
 using ApiGraphActivator;
 using System.Text.Json;
 using ApiGraphActivator.McpTools;
+using ApiGraphActivator.McpResources;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -62,9 +63,15 @@ builder.Services.AddScoped<DocumentSearchService>(serviceProvider =>
     var storageService = storageConfigService.GetStorageServiceAsync().GetAwaiter().GetResult();
     return new DocumentSearchService(logger, storageService);
 });
+
+// Register OpenAI service for AI analysis
+builder.Services.AddScoped<OpenAIService>();
+
+// Register existing MCP search tools
 builder.Services.AddScoped<CompanySearchTool>();
 builder.Services.AddScoped<FormFilterTool>();
 builder.Services.AddScoped<ContentSearchTool>();
+
 
 // Register workflow services and tools
 builder.Services.AddSingleton<IWorkflowStorageService, FileWorkflowStorageService>();
@@ -74,6 +81,36 @@ builder.Services.AddScoped<WorkflowExecutionTool>();
 builder.Services.AddScoped<WorkflowStatusTool>();
 builder.Services.AddScoped<BatchProcessingTool>();
 builder.Services.AddScoped<ResultAggregationTool>();
+=======
+
+// Register new AI analysis tools
+builder.Services.AddScoped<DocumentSummarizationTool>();
+builder.Services.AddScoped<DocumentQuestionAnswerTool>();
+builder.Services.AddScoped<DocumentComparisonTool>();
+builder.Services.AddScoped<FinancialAnalysisTool>();
+// Register MCP resource services
+builder.Services.AddScoped<ApiGraphActivator.McpResources.ResourceService>();
+
+// Register M365 Copilot Client services
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<IM365CopilotClient>(serviceProvider =>
+{
+    var logger = serviceProvider.GetRequiredService<ILogger<M365CopilotClient>>();
+    var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
+    var httpClient = httpClientFactory.CreateClient();
+    return new M365CopilotClient(logger, httpClient);
+}
+
+// Register conversation management services
+builder.Services.AddScoped<ConversationService>(serviceProvider =>
+{
+    var logger = serviceProvider.GetRequiredService<ILogger<ConversationService>>();
+    var storageConfigService = serviceProvider.GetRequiredService<StorageConfigurationService>();
+    var storageService = storageConfigService.GetStorageServiceAsync().GetAwaiter().GetResult();
+    var documentSearchService = serviceProvider.GetRequiredService<DocumentSearchService>();
+    return new ConversationService(logger, storageService, documentSearchService);
+});
+
 
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
@@ -112,6 +149,26 @@ try
 catch (Exception ex)
 {
     staticServiceLogger.LogWarning("Failed to initialize storage service: {Message}", ex.Message);
+}
+
+// Initialize M365 Copilot Client
+try
+{
+    using var scope = app.Services.CreateScope();
+    var copilotClient = scope.ServiceProvider.GetRequiredService<IM365CopilotClient>();
+    var initialized = await copilotClient.InitializeAsync();
+    if (initialized)
+    {
+        staticServiceLogger.LogInformation("M365 Copilot Client initialized successfully");
+    }
+    else
+    {
+        staticServiceLogger.LogWarning("M365 Copilot Client initialization failed");
+    }
+}
+catch (Exception ex)
+{
+    staticServiceLogger.LogWarning("Failed to initialize M365 Copilot Client: {Message}", ex.Message);
 }
 
 // Log a test message to verify Application Insights is working
@@ -550,6 +607,178 @@ app.MapGet("/crawl-metrics/yearly/{companyName}", async (string companyName, Sto
 .WithName("GetCompanyYearlyMetrics")
 .WithOpenApi();
 
+// Conversation Management Endpoints
+app.MapPost("/conversations/sessions", async (ConversationService conversationService, CreateSessionRequest? request) =>
+{
+    try
+    {
+        var ttl = request?.TtlHours > 0 ? TimeSpan.FromHours(request.TtlHours.Value) : (TimeSpan?)null;
+        var session = await conversationService.CreateSessionAsync(request?.UserId, ttl);
+        return Results.Created($"/conversations/sessions/{session.Id}", session);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error creating conversation session: {Message}", ex.Message);
+        return Results.Problem($"Failed to create session: {ex.Message}");
+    }
+})
+.WithName("CreateConversationSession")
+.WithOpenApi()
+.WithSummary("Create a new conversation session")
+.WithDescription("Creates a new conversation session for multi-turn interactions");
+
+app.MapGet("/conversations/sessions/{sessionId}", async (string sessionId, ConversationService conversationService) =>
+{
+    try
+    {
+        var session = await conversationService.GetSessionAsync(sessionId);
+        return session != null ? Results.Ok(session) : Results.NotFound($"Session {sessionId} not found");
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting conversation session {SessionId}: {Message}", sessionId, ex.Message);
+        return Results.Problem($"Failed to get session: {ex.Message}");
+    }
+})
+.WithName("GetConversationSession")
+.WithOpenApi()
+.WithSummary("Get a conversation session")
+.WithDescription("Retrieves an existing conversation session by ID");
+
+app.MapPost("/conversations/sessions/{sessionId}/conversations", async (string sessionId, ConversationService conversationService, CreateConversationRequest? request) =>
+{
+    try
+    {
+        var conversation = await conversationService.CreateConversationAsync(sessionId, request?.Title);
+        return Results.Created($"/conversations/{conversation.Id}", conversation);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error creating conversation in session {SessionId}: {Message}", sessionId, ex.Message);
+        return Results.Problem($"Failed to create conversation: {ex.Message}");
+    }
+})
+.WithName("CreateConversation")
+.WithOpenApi()
+.WithSummary("Create a conversation in a session")
+.WithDescription("Creates a new conversation within an existing session");
+
+app.MapGet("/conversations/{conversationId}", async (string conversationId, ConversationService conversationService, int skip = 0, int take = 100) =>
+{
+    try
+    {
+        var result = await conversationService.GetConversationWithMessagesAsync(conversationId, skip, take);
+        return result != null ? Results.Ok(result) : Results.NotFound($"Conversation {conversationId} not found");
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting conversation {ConversationId}: {Message}", conversationId, ex.Message);
+        return Results.Problem($"Failed to get conversation: {ex.Message}");
+    }
+})
+.WithName("GetConversationWithMessages")
+.WithOpenApi()
+.WithSummary("Get a conversation with messages")
+.WithDescription("Retrieves a conversation with its messages, supporting pagination");
+
+app.MapPost("/conversations/{conversationId}/messages", async (string conversationId, ConversationService conversationService, AddMessageRequest request) =>
+{
+    try
+    {
+        var message = await conversationService.AddMessageAsync(
+            conversationId,
+            request.Role,
+            request.Content,
+            request.Citations,
+            request.Metadata,
+            request.ToolCallId,
+            request.ToolName);
+        
+        return Results.Created($"/conversations/{conversationId}/messages/{message.Id}", message);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error adding message to conversation {ConversationId}: {Message}", conversationId, ex.Message);
+        return Results.Problem($"Failed to add message: {ex.Message}");
+    }
+})
+.WithName("AddConversationMessage")
+.WithOpenApi()
+.WithSummary("Add a message to a conversation")
+.WithDescription("Adds a new message to an existing conversation");
+
+app.MapGet("/conversations/sessions/{sessionId}/conversations", async (string sessionId, ConversationService conversationService) =>
+{
+    try
+    {
+        var conversations = await conversationService.GetSessionConversationsAsync(sessionId);
+        return Results.Ok(conversations);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting conversations for session {SessionId}: {Message}", sessionId, ex.Message);
+        return Results.Problem($"Failed to get conversations: {ex.Message}");
+    }
+})
+.WithName("GetSessionConversations")
+.WithOpenApi()
+.WithSummary("Get conversations for a session")
+.WithDescription("Retrieves all conversations within a session");
+
+app.MapPut("/conversations/{conversationId}/context", async (string conversationId, ConversationService conversationService, Dictionary<string, object> contextUpdates) =>
+{
+    try
+    {
+        await conversationService.UpdateConversationContextAsync(conversationId, contextUpdates);
+        return Results.Ok(new { message = "Context updated successfully" });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error updating context for conversation {ConversationId}: {Message}", conversationId, ex.Message);
+        return Results.Problem($"Failed to update context: {ex.Message}");
+    }
+})
+.WithName("UpdateConversationContext")
+.WithOpenApi()
+.WithSummary("Update conversation context")
+.WithDescription("Updates the context data for a conversation");
+
+app.MapPost("/conversations/cleanup", async (ConversationService conversationService) =>
+{
+    try
+    {
+        await conversationService.CleanupExpiredSessionsAsync();
+        return Results.Ok(new { message = "Cleanup completed successfully" });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error during conversation cleanup: {Message}", ex.Message);
+        return Results.Problem($"Cleanup failed: {ex.Message}");
+    }
+})
+.WithName("CleanupExpiredSessions")
+.WithOpenApi()
+.WithSummary("Cleanup expired sessions")
+.WithDescription("Removes expired conversation sessions and their data");
+
+app.MapGet("/conversations/metrics", async (ConversationService conversationService) =>
+{
+    try
+    {
+        var metrics = await conversationService.GetConversationMetricsAsync();
+        return Results.Ok(metrics);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting conversation metrics: {Message}", ex.Message);
+        return Results.Problem($"Failed to get metrics: {ex.Message}");
+    }
+})
+.WithName("GetConversationMetrics")
+.WithOpenApi()
+.WithSummary("Get conversation system metrics")
+.WithDescription("Retrieves metrics about the conversation system usage");
+
 // Scheduler Configuration Endpoints
 app.MapGet("/scheduler-config", async (HttpContext context) =>
 {
@@ -672,6 +901,7 @@ app.MapPost("/mcp/tools/content-search", async (ContentSearchParameters paramete
 
 // Workflow Management Endpoints
 app.MapPost("/mcp/tools/workflow-definition", async (WorkflowDefinitionParameters parameters, WorkflowDefinitionTool tool) =>
+// MCP AI Analysis Tool Endpoints
 {
     try
     {
@@ -688,6 +918,17 @@ app.MapPost("/mcp/tools/workflow-definition", async (WorkflowDefinitionParameter
 .WithOpenApi()
 .WithSummary("MCP Tool: Define workflows")
 .WithDescription("Create and manage multi-step workflows that orchestrate MCP tools");
+
+
+app.MapPost("/mcp/tools/document-summarization", async (DocumentSummarizationParameters parameters, DocumentSummarizationTool tool) =>
+        staticServiceLogger.LogError("Error executing document summarization tool: {Message}", ex.Message);
+        return Results.Problem($"Document summarization failed: {ex.Message}");
+    }
+})
+.WithName("McpDocumentSummarization")
+.WithOpenApi()
+.WithSummary("MCP Tool: AI Document Summarization")
+.WithDescription("Generate comprehensive summaries of SEC filing documents using AI analysis with different summary types");
 
 app.MapPost("/mcp/tools/workflow-execution", async (WorkflowExecutionParameters parameters, WorkflowExecutionTool tool) =>
 {
@@ -707,6 +948,16 @@ app.MapPost("/mcp/tools/workflow-execution", async (WorkflowExecutionParameters 
 .WithSummary("MCP Tool: Execute workflows")
 .WithDescription("Execute defined workflows with parameter substitution and progress tracking");
 
+app.MapPost("/mcp/tools/document-qa", async (DocumentQuestionAnswerParameters parameters, DocumentQuestionAnswerTool tool) =>
+        staticServiceLogger.LogError("Error executing document Q&A tool: {Message}", ex.Message);
+        return Results.Problem($"Document Q&A failed: {ex.Message}");
+    }
+})
+.WithName("McpDocumentQuestionAnswer")
+.WithOpenApi()
+.WithSummary("MCP Tool: AI Document Question Answering")
+.WithDescription("Answer specific questions about SEC filing documents using AI analysis with citations and supporting evidence");
+
 app.MapPost("/mcp/tools/workflow-status", async (WorkflowStatusParameters parameters, WorkflowStatusTool tool) =>
 {
     try
@@ -724,6 +975,17 @@ app.MapPost("/mcp/tools/workflow-status", async (WorkflowStatusParameters parame
 .WithOpenApi()
 .WithSummary("MCP Tool: Monitor workflow status")
 .WithDescription("Monitor workflow execution progress and retrieve status information");
+
+app.MapPost("/mcp/tools/document-comparison", async (DocumentComparisonParameters parameters, DocumentComparisonTool tool) =>
+        staticServiceLogger.LogError("Error executing document comparison tool: {Message}", ex.Message);
+        return Results.Problem($"Document comparison failed: {ex.Message}");
+    }
+})
+.WithName("McpDocumentComparison")
+.WithOpenApi()
+.WithSummary("MCP Tool: AI Document Comparison")
+.WithDescription("Perform comparative analysis across multiple SEC filing documents to identify differences, similarities, and trends");
+
 
 app.MapPost("/mcp/tools/batch-processing", async (BatchProcessingParameters parameters, BatchProcessingTool tool) =>
 {
@@ -886,26 +1148,40 @@ app.MapPost("/workflow-executions/{executionId}/cancel", async (string execution
 .WithSummary("Cancel workflow execution")
 .WithDescription("Cancel a running workflow execution");
 
+
+app.MapPost("/mcp/tools/financial-analysis", async (FinancialAnalysisParameters parameters, FinancialAnalysisTool tool) =>
+        staticServiceLogger.LogError("Error executing financial analysis tool: {Message}", ex.Message);
+        return Results.Problem($"Financial analysis failed: {ex.Message}");
+    }
+})
+.WithName("McpFinancialAnalysis")
+.WithOpenApi()
+.WithSummary("MCP Tool: AI Financial Analysis")
+.WithDescription("Perform comprehensive financial analysis of SEC filing documents with key metrics, ratios, and business insights");
+
 // MCP Tools Discovery Endpoint
 app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool, ContentSearchTool contentTool,
-    WorkflowDefinitionTool workflowDefTool, WorkflowExecutionTool workflowExecTool, WorkflowStatusTool workflowStatusTool,
-    BatchProcessingTool batchTool, ResultAggregationTool resultTool) =>
+    DocumentSummarizationTool summarizationTool, DocumentQuestionAnswerTool qaTool, 
+    DocumentComparisonTool comparisonTool, FinancialAnalysisTool financialTool) =>
 {
     var tools = new[]
     {
+        // Document Search Tools
         new
         {
             name = companyTool.Name,
             description = companyTool.Description,
             inputSchema = companyTool.InputSchema,
-            endpoint = "/mcp/tools/company-search"
+            endpoint = "/mcp/tools/company-search",
+            category = "Document Search"
         },
         new
         {
             name = formTool.Name,
             description = formTool.Description,
             inputSchema = formTool.InputSchema,
-            endpoint = "/mcp/tools/form-filter"
+            endpoint = "/mcp/tools/form-filter",
+            category = "Document Search"
         },
         new
         {
@@ -948,14 +1224,369 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
             description = resultTool.Description,
             inputSchema = resultTool.InputSchema,
             endpoint = "/mcp/tools/result-aggregation"
+            endpoint = "/mcp/tools/content-search",
+            category = "Document Search"
+        },
+        // AI Analysis Tools
+        new
+        {
+            name = summarizationTool.Name,
+            description = summarizationTool.Description,
+            inputSchema = summarizationTool.InputSchema,
+            endpoint = "/mcp/tools/document-summarization",
+            category = "AI Analysis"
+        },
+        new
+        {
+            name = qaTool.Name,
+            description = qaTool.Description,
+            inputSchema = qaTool.InputSchema,
+            endpoint = "/mcp/tools/document-qa",
+            category = "AI Analysis"
+        },
+        new
+        {
+            name = comparisonTool.Name,
+            description = comparisonTool.Description,
+            inputSchema = comparisonTool.InputSchema,
+            endpoint = "/mcp/tools/document-comparison",
+            category = "AI Analysis"
+        },
+        new
+        {
+            name = financialTool.Name,
+            description = financialTool.Description,
+            inputSchema = financialTool.InputSchema,
+            endpoint = "/mcp/tools/financial-analysis",
+            category = "AI Analysis"
         }
     };
 
-    return Results.Ok(new { tools });
+    return Results.Ok(new { 
+        tools, 
+        totalCount = tools.Length,
+        categories = new[] { "Document Search", "AI Analysis" },
+        description = "MCP tools for SEC document search and AI-powered analysis including summarization, Q&A, comparison, and financial analysis"
+    });
 })
 .WithName("McpToolsDiscovery")
 .WithOpenApi()
 .WithSummary("MCP Tools Discovery")
 .WithDescription("List all available MCP tools with their schemas and endpoints");
+.WithDescription("List all available MCP document search and AI analysis tools with their schemas and endpoints");
+
+
+// MCP Resources Endpoints
+app.MapGet("/mcp/resources/list", async (
+    ApiGraphActivator.McpResources.ResourceService resourceService,
+    string? companyName = null,
+    string? formType = null,
+    DateTime? startDate = null,
+    DateTime? endDate = null,
+    int limit = 100,
+    int offset = 0,
+    string sortBy = "filingDate",
+    string sortOrder = "desc") =>
+{
+    try
+    {
+        var parameters = new ApiGraphActivator.McpResources.ResourceListParameters
+        {
+            CompanyName = companyName,
+            FormType = formType,
+            StartDate = startDate,
+            EndDate = endDate,
+            Limit = Math.Min(limit, 1000),
+            Offset = Math.Max(offset, 0),
+            SortBy = sortBy,
+            SortOrder = sortOrder
+        };
+
+        var result = await resourceService.ListResourcesAsync(parameters);
+        
+        if (result.IsError)
+        {
+            return Results.BadRequest(new { error = result.ErrorMessage });
+        }
+
+        return Results.Ok(result.Content);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error in resources/list endpoint: {Message}", ex.Message);
+        return Results.Problem($"Internal server error: {ex.Message}");
+    }
+})
+.WithName("McpResourcesList")
+.WithOpenApi()
+.WithSummary("MCP Resources List")
+.WithDescription("List available SEC Edgar document resources with optional filtering and pagination");
+
+app.MapGet("/mcp/resources/content/{**resourceUri}", async (
+    string resourceUri,
+    ApiGraphActivator.McpResources.ResourceService resourceService) =>
+{
+    try
+    {
+        // Decode the resource URI
+        var decodedUri = Uri.UnescapeDataString(resourceUri);
+        
+        var result = await resourceService.GetResourceContentAsync(decodedUri);
+        
+        if (result.IsError)
+        {
+            return Results.BadRequest(new { error = result.ErrorMessage });
+        }
+
+        return Results.Ok(result.Content);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error in resources/content endpoint: {Message}", ex.Message);
+        return Results.Problem($"Internal server error: {ex.Message}");
+    }
+})
+.WithName("McpResourceContent")
+.WithOpenApi()
+.WithSummary("MCP Resource Content")
+.WithDescription("Get the full content of a specific SEC Edgar document resource by URI");
+
+app.MapGet("/mcp/resources/metadata/{**resourceUri}", async (
+    string resourceUri,
+    ApiGraphActivator.McpResources.ResourceService resourceService) =>
+{
+    try
+    {
+        // Decode the resource URI
+        var decodedUri = Uri.UnescapeDataString(resourceUri);
+        
+        var result = await resourceService.GetResourceMetadataAsync(decodedUri);
+        
+        if (result.IsError)
+        {
+            return Results.BadRequest(new { error = result.ErrorMessage });
+        }
+
+        return Results.Ok(result.Content);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error in resources/metadata endpoint: {Message}", ex.Message);
+        return Results.Problem($"Internal server error: {ex.Message}");
+    }
+})
+.WithName("McpResourceMetadata")
+.WithOpenApi()
+.WithSummary("MCP Resource Metadata")
+.WithDescription("Get metadata for a specific SEC Edgar document resource without the full content");
+
+// MCP Resources Discovery Endpoint
+app.MapGet("/mcp/resources", async (ApiGraphActivator.McpResources.ResourceService resourceService) =>
+{
+    try
+    {
+        // Return a sample of available resources for discovery
+        var parameters = new ApiGraphActivator.McpResources.ResourceListParameters
+        {
+            Limit = 10,
+            Offset = 0,
+            SortBy = "filingDate",
+            SortOrder = "desc"
+        };
+
+        var result = await resourceService.ListResourcesAsync(parameters);
+        
+        if (result.IsError)
+        {
+            return Results.BadRequest(new { error = result.ErrorMessage });
+        }
+
+        var response = new
+        {
+            resourceScheme = "sec-edgar://documents/",
+            totalAvailable = result.Content.TotalCount,
+            sampleResources = result.Content.Resources.Take(5).Select(r => new
+            {
+                r.Uri,
+                r.Name,
+                r.Description,
+                r.MimeType
+            }),
+            endpoints = new
+            {
+                list = "/mcp/resources/list",
+                content = "/mcp/resources/content/{resourceUri}",
+                metadata = "/mcp/resources/metadata/{resourceUri}"
+            }
+        };
+
+        return Results.Ok(response);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error in resources discovery endpoint: {Message}", ex.Message);
+        return Results.Problem($"Internal server error: {ex.Message}");
+    }
+})
+.WithName("McpResourcesDiscovery")
+.WithOpenApi()
+.WithSummary("MCP Resources Discovery")
+.WithDescription("Discover available MCP resources and endpoints");
+
+// M365 Copilot Endpoints
+app.MapPost("/copilot/conversations", async (CreateConversationRequest request, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var conversation = await copilotClient.CreateConversationAsync(request);
+        return Results.Ok(conversation);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error creating Copilot conversation: {Message}", ex.Message);
+        return Results.Problem($"Failed to create conversation: {ex.Message}");
+    }
+})
+.WithName("CreateCopilotConversation")
+.WithOpenApi()
+.WithSummary("Create a new M365 Copilot conversation")
+.WithDescription("Create a new conversation for M365 Copilot chat integration");
+
+app.MapGet("/copilot/conversations/{conversationId}", async (string conversationId, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var conversation = await copilotClient.GetConversationAsync(conversationId);
+        if (conversation == null)
+        {
+            return Results.NotFound($"Conversation {conversationId} not found");
+        }
+        return Results.Ok(conversation);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting Copilot conversation {ConversationId}: {Message}", conversationId, ex.Message);
+        return Results.Problem($"Failed to get conversation: {ex.Message}");
+    }
+})
+.WithName("GetCopilotConversation")
+.WithOpenApi()
+.WithSummary("Get a M365 Copilot conversation by ID")
+.WithDescription("Retrieve an existing conversation with all messages");
+
+app.MapGet("/copilot/conversations", async (string tenantId, int limit, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var conversations = await copilotClient.GetConversationsAsync(tenantId, limit);
+        return Results.Ok(conversations);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting Copilot conversations for tenant {TenantId}: {Message}", tenantId, ex.Message);
+        return Results.Problem($"Failed to get conversations: {ex.Message}");
+    }
+})
+.WithName("GetCopilotConversations")
+.WithOpenApi()
+.WithSummary("Get M365 Copilot conversations for a tenant")
+.WithDescription("Retrieve all conversations for a specific tenant with optional limit");
+
+app.MapPost("/copilot/chat", async (CopilotChatRequest request, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        if (request.Stream)
+        {
+            // Handle streaming response
+            return Results.Stream(async stream =>
+            {
+                var writer = new StreamWriter(stream, leaveOpen: true);
+                try
+                {
+                    await foreach (var chunk in copilotClient.SendMessageStreamAsync(request))
+                    {
+                        var json = JsonSerializer.Serialize(chunk);
+                        await writer.WriteLineAsync($"data: {json}");
+                        await writer.FlushAsync();
+                        
+                        if (chunk.IsComplete)
+                        {
+                            await writer.WriteLineAsync("data: [DONE]");
+                            break;
+                        }
+                    }
+                }
+                finally
+                {
+                    await writer.DisposeAsync();
+                }
+            }, "text/plain");
+        }
+        else
+        {
+            // Handle synchronous response
+            var response = await copilotClient.SendMessageAsync(request);
+            return Results.Ok(response);
+        }
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error sending Copilot message: {Message}", ex.Message);
+        return Results.Problem($"Failed to send message: {ex.Message}");
+    }
+})
+.WithName("SendCopilotMessage")
+.WithOpenApi()
+.WithSummary("Send a message to M365 Copilot")
+.WithDescription("Send a message to a conversation and get either synchronous or streaming response");
+
+app.MapDelete("/copilot/conversations/{conversationId}", async (string conversationId, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var deleted = await copilotClient.DeleteConversationAsync(conversationId);
+        if (!deleted)
+        {
+            return Results.NotFound($"Conversation {conversationId} not found");
+        }
+        return Results.Ok(new { message = "Conversation deleted successfully" });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error deleting Copilot conversation {ConversationId}: {Message}", conversationId, ex.Message);
+        return Results.Problem($"Failed to delete conversation: {ex.Message}");
+    }
+})
+.WithName("DeleteCopilotConversation")
+.WithOpenApi()
+.WithSummary("Delete a M365 Copilot conversation")
+.WithDescription("Delete a conversation and all its messages");
+
+app.MapGet("/copilot/health", async (IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var isHealthy = await copilotClient.IsHealthyAsync();
+        return Results.Ok(new { 
+            healthy = isHealthy, 
+            timestamp = DateTime.UtcNow,
+            message = isHealthy ? "M365 Copilot Client is healthy" : "M365 Copilot Client is not healthy"
+        });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error checking Copilot health: {Message}", ex.Message);
+        return Results.Problem($"Health check failed: {ex.Message}");
+    }
+})
+.WithName("CopilotHealthCheck")
+.WithOpenApi()
+.WithSummary("Check M365 Copilot Client health")
+.WithDescription("Check if the Copilot client is authenticated and ready to handle requests");
+
 
 app.Run();
+
+// Make Program class accessible for testing
+public partial class Program { }

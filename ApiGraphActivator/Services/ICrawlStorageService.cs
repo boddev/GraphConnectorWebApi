@@ -15,13 +15,34 @@ public interface ICrawlStorageService
     Task<bool> IsHealthyAsync();
     string GetStorageType();
     
-    // New search methods for MCP tools
+    // Search methods for MCP tools
     Task<List<DocumentInfo>> SearchByCompanyAsync(string companyName, List<string>? formTypes = null, 
         DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50);
     Task<List<DocumentInfo>> SearchByFormTypeAsync(List<string> formTypes, List<string>? companyNames = null,
         DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50);
     Task<int> GetSearchResultCountAsync(string? companyName = null, List<string>? formTypes = null,
         DateTime? startDate = null, DateTime? endDate = null);
+
+    Task<DocumentInfo?> GetDocumentByIdAsync(string documentId);
+    
+    // Conversation management methods
+    Task<ConversationSession> CreateSessionAsync(string? userId = null, TimeSpan? ttl = null);
+    Task<ConversationSession?> GetSessionAsync(string sessionId);
+    Task UpdateSessionAsync(ConversationSession session);
+    Task DeleteSessionAsync(string sessionId);
+    Task<List<ConversationSession>> GetUserSessionsAsync(string userId);
+    Task CleanupExpiredSessionsAsync();
+    
+    Task<Conversation> CreateConversationAsync(string sessionId, string? title = null);
+    Task<Conversation?> GetConversationAsync(string conversationId);
+    Task UpdateConversationAsync(Conversation conversation);
+    Task DeleteConversationAsync(string conversationId);
+    Task<List<Conversation>> GetSessionConversationsAsync(string sessionId);
+    
+    Task<ConversationMessage> AddMessageAsync(string conversationId, ConversationMessageRole role, 
+        string content, List<DocumentCitation>? citations = null, Dictionary<string, object>? metadata = null);
+    Task<List<ConversationMessage>> GetConversationMessagesAsync(string conversationId, int skip = 0, int take = 100);
+    Task UpdateMessageAsync(ConversationMessage message);
 }
 
 public class DocumentInfo
