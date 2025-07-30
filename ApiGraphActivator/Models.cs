@@ -1,3 +1,5 @@
+using ApiGraphActivator.Models.Mcp;
+
 namespace ApiGraphActivator;
 
 public class Company

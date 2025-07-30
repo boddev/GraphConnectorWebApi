@@ -2,6 +2,7 @@ using ApiGraphActivator.Services;
 using Microsoft.Extensions.Logging.ApplicationInsights;
 using ApiGraphActivator;
 using System.Text.Json;
+using ApiGraphActivator.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -56,6 +57,22 @@ builder.Services.AddHostedService<SchedulerService>();
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
+// MCP Session Management Services
+builder.Services.Configure<ApiGraphActivator.Models.Mcp.SessionCleanupConfiguration>(options =>
+{
+    // Configure default values
+    options.DefaultSessionTimeout = TimeSpan.FromHours(24);
+    options.CleanupInterval = TimeSpan.FromMinutes(30);
+    options.InactivityTimeout = TimeSpan.FromHours(2);
+    options.MaxSessionsPerClient = 10;
+    options.EnableAutomaticCleanup = true;
+});
+
+builder.Services.AddSingleton<ApiGraphActivator.Services.Mcp.ISessionAuthenticationProvider, ApiGraphActivator.Services.Mcp.AzureAdSessionAuthenticationProvider>();
+builder.Services.AddSingleton<ApiGraphActivator.Services.Mcp.ISessionManager, ApiGraphActivator.Services.Mcp.SessionManager>();
+builder.Services.AddSingleton<ApiGraphActivator.Services.Mcp.IConnectionManager, ApiGraphActivator.Services.Mcp.ConnectionManager>();
+builder.Services.AddHostedService<ApiGraphActivator.Services.Mcp.SessionCleanupService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -69,6 +86,9 @@ app.UseHttpsRedirection();
 
 // Use CORS
 app.UseCors("AllowReactApp");
+
+// Add MCP session validation middleware
+app.UseMcpSessionValidation();
 
 // Create a factory-based logger that's appropriate for static classes
 var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
@@ -98,6 +118,162 @@ staticServiceLogger.LogInformation("Application started and Application Insights
 app.MapGet("/", () => "Hello World!")
     .WithName("GetHelloWorld")
     .WithOpenApi();
+
+// MCP Session Management Endpoints
+app.MapPost("/mcp/sessions", async (ApiGraphActivator.Models.Mcp.CreateSessionRequest request, ApiGraphActivator.Services.Mcp.ISessionManager sessionManager) =>
+{
+    var result = await sessionManager.CreateSessionAsync(request);
+    return result.Success ? Results.Ok(result) : Results.BadRequest(result);
+})
+.WithName("CreateMcpSession")
+.WithOpenApi();
+
+app.MapGet("/mcp/sessions/{sessionId}/validate", async (string sessionId, ApiGraphActivator.Services.Mcp.ISessionManager sessionManager) =>
+{
+    var result = await sessionManager.ValidateSessionAsync(sessionId);
+    if (result.IsValid)
+    {
+        return Results.Ok(new { valid = true, session = result.Session });
+    }
+    
+    if (result.RequiresAuthentication)
+    {
+        return Results.Unauthorized();
+    }
+    
+    return Results.BadRequest(new { valid = false, error = result.ErrorMessage });
+})
+.WithName("ValidateMcpSession")
+.WithOpenApi();
+
+app.MapPost("/mcp/sessions/{sessionId}/authenticate", async (string sessionId, HttpContext context, ApiGraphActivator.Services.Mcp.ISessionManager sessionManager, ApiGraphActivator.Services.Mcp.ISessionAuthenticationProvider authProvider) =>
+{
+    try
+    {
+        // Get authorization header
+        var authHeader = context.Request.Headers["Authorization"].FirstOrDefault();
+        if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+        {
+            return Results.BadRequest(new { error = "Bearer token required" });
+        }
+
+        var token = authHeader.Substring("Bearer ".Length).Trim();
+        var authInfo = await authProvider.AuthenticateWithAzureAdAsync(token);
+        
+        if (authInfo == null)
+        {
+            return Results.Unauthorized();
+        }
+
+        // Update session with authentication info
+        var validation = await sessionManager.ValidateSessionAsync(sessionId);
+        if (!validation.IsValid && !validation.RequiresAuthentication)
+        {
+            return Results.BadRequest(new { error = validation.ErrorMessage });
+        }
+
+        // Update the session's authentication info directly
+        if (validation.Session != null)
+        {
+            validation.Session.AuthenticationInfo = authInfo;
+        }
+        
+        await sessionManager.SetSessionDataAsync(sessionId, "authentication", authInfo);
+        
+        return Results.Ok(new { authenticated = true, expiresAt = authInfo.TokenExpiresAt });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error authenticating session {SessionId}: {Message}", sessionId, ex.Message);
+        return Results.Problem("Authentication failed");
+    }
+})
+.WithName("AuthenticateMcpSession")
+.WithOpenApi();
+
+app.MapPost("/mcp/sessions/{sessionId}/terminate", async (string sessionId, ApiGraphActivator.Services.Mcp.ISessionManager sessionManager) =>
+{
+    var success = await sessionManager.TerminateSessionAsync(sessionId);
+    return success ? Results.Ok(new { terminated = true }) : Results.NotFound();
+})
+.WithName("TerminateMcpSession")
+.WithOpenApi();
+
+app.MapGet("/mcp/sessions/{sessionId}/data/{key}", async (string sessionId, string key, ApiGraphActivator.Services.Mcp.ISessionManager sessionManager) =>
+{
+    var data = await sessionManager.GetSessionDataAsync<object>(sessionId, key);
+    return data != null ? Results.Ok(data) : Results.NotFound();
+})
+.WithName("GetMcpSessionData")
+.WithOpenApi();
+
+app.MapPost("/mcp/sessions/{sessionId}/data/{key}", async (string sessionId, string key, HttpContext context, ApiGraphActivator.Services.Mcp.ISessionManager sessionManager) =>
+{
+    using var reader = new StreamReader(context.Request.Body);
+    var json = await reader.ReadToEndAsync();
+    var data = System.Text.Json.JsonSerializer.Deserialize<object>(json);
+    
+    await sessionManager.SetSessionDataAsync(sessionId, key, data);
+    return Results.Ok(new { success = true });
+})
+.WithName("SetMcpSessionData")
+.WithOpenApi();
+
+app.MapGet("/mcp/sessions/statistics", async (ApiGraphActivator.Services.Mcp.ISessionManager sessionManager) =>
+{
+    var stats = await sessionManager.GetSessionStatisticsAsync();
+    return Results.Ok(stats);
+})
+.WithName("GetMcpSessionStatistics")
+.WithOpenApi();
+
+app.MapPost("/mcp/connections", async (HttpContext context, ApiGraphActivator.Services.Mcp.IConnectionManager connectionManager) =>
+{
+    try
+    {
+        var request = await context.Request.ReadFromJsonAsync<ApiGraphActivator.Models.Mcp.ConnectionRegistrationRequest>();
+        if (request == null)
+        {
+            return Results.BadRequest("Invalid request");
+        }
+
+        var remoteEndpoint = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var connectionId = await connectionManager.RegisterConnectionAsync(request.SessionId, remoteEndpoint, request.Metadata);
+        
+        return Results.Ok(new { connectionId });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error registering connection: {Message}", ex.Message);
+        return Results.Problem("Failed to register connection");
+    }
+})
+.WithName("RegisterMcpConnection")
+.WithOpenApi();
+
+app.MapPost("/mcp/connections/{connectionId}/disconnect", async (string connectionId, ApiGraphActivator.Services.Mcp.IConnectionManager connectionManager) =>
+{
+    await connectionManager.DisconnectAsync(connectionId);
+    return Results.Ok(new { disconnected = true });
+})
+.WithName("DisconnectMcpConnection")
+.WithOpenApi();
+
+// MCP Test endpoint (development only)
+app.MapGet("/mcp/test", async () =>
+{
+    try
+    {
+        await ApiGraphActivator.Tests.McpSessionTests.RunAllTests();
+        return Results.Ok(new { success = true, message = "All MCP tests passed" });
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem($"MCP tests failed: {ex.Message}");
+    }
+})
+.WithName("TestMcpSessions")
+.WithOpenApi();
 
 app.MapPost("/grantPermissions", async (HttpContext context) =>
 {
