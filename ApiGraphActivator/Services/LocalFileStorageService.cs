@@ -299,6 +299,99 @@ public class LocalFileStorageService : ICrawlStorageService
 
     public string GetStorageType() => "Local File Storage";
 
+    public async Task<List<DocumentInfo>> SearchByCompanyAsync(string companyName, List<string>? formTypes = null, 
+        DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50)
+    {
+        var documents = await LoadDocumentsAsync();
+        
+        var query = documents.Where(d => 
+            d.CompanyName.Contains(companyName, StringComparison.OrdinalIgnoreCase));
+
+        if (formTypes?.Any() == true)
+        {
+            query = query.Where(d => formTypes.Any(ft => 
+                d.Form.Equals(ft, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (startDate.HasValue)
+        {
+            query = query.Where(d => d.FilingDate >= startDate.Value);
+        }
+
+        if (endDate.HasValue)
+        {
+            query = query.Where(d => d.FilingDate <= endDate.Value);
+        }
+
+        return query
+            .OrderByDescending(d => d.FilingDate)
+            .Skip(skip)
+            .Take(take)
+            .ToList();
+    }
+
+    public async Task<List<DocumentInfo>> SearchByFormTypeAsync(List<string> formTypes, List<string>? companyNames = null,
+        DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50)
+    {
+        var documents = await LoadDocumentsAsync();
+        
+        var query = documents.Where(d => 
+            formTypes.Any(ft => d.Form.Equals(ft, StringComparison.OrdinalIgnoreCase)));
+
+        if (companyNames?.Any() == true)
+        {
+            query = query.Where(d => companyNames.Any(cn => 
+                d.CompanyName.Contains(cn, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (startDate.HasValue)
+        {
+            query = query.Where(d => d.FilingDate >= startDate.Value);
+        }
+
+        if (endDate.HasValue)
+        {
+            query = query.Where(d => d.FilingDate <= endDate.Value);
+        }
+
+        return query
+            .OrderByDescending(d => d.FilingDate)
+            .Skip(skip)
+            .Take(take)
+            .ToList();
+    }
+
+    public async Task<int> GetSearchResultCountAsync(string? companyName = null, List<string>? formTypes = null,
+        DateTime? startDate = null, DateTime? endDate = null)
+    {
+        var documents = await LoadDocumentsAsync();
+        
+        var query = documents.AsQueryable();
+
+        if (!string.IsNullOrEmpty(companyName))
+        {
+            query = query.Where(d => d.CompanyName.Contains(companyName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (formTypes?.Any() == true)
+        {
+            query = query.Where(d => formTypes.Any(ft => 
+                d.Form.Equals(ft, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        if (startDate.HasValue)
+        {
+            query = query.Where(d => d.FilingDate >= startDate.Value);
+        }
+
+        if (endDate.HasValue)
+        {
+            query = query.Where(d => d.FilingDate <= endDate.Value);
+        }
+
+        return query.Count();
+    }
+
     private async Task<List<DocumentInfo>> LoadDocumentsAsync()
     {
         try

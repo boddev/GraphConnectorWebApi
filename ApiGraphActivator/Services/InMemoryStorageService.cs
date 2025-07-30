@@ -235,4 +235,109 @@ public class InMemoryStorageService : ICrawlStorageService
     }
 
     public string GetStorageType() => "In-Memory Storage";
+
+    public async Task<List<DocumentInfo>> SearchByCompanyAsync(string companyName, List<string>? formTypes = null, 
+        DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var query = _documents.Where(d => 
+                    d.CompanyName.Contains(companyName, StringComparison.OrdinalIgnoreCase));
+
+                if (formTypes?.Any() == true)
+                {
+                    query = query.Where(d => formTypes.Any(ft => 
+                        d.Form.Equals(ft, StringComparison.OrdinalIgnoreCase)));
+                }
+
+                if (startDate.HasValue)
+                {
+                    query = query.Where(d => d.FilingDate >= startDate.Value);
+                }
+
+                if (endDate.HasValue)
+                {
+                    query = query.Where(d => d.FilingDate <= endDate.Value);
+                }
+
+                return query
+                    .OrderByDescending(d => d.FilingDate)
+                    .Skip(skip)
+                    .Take(take)
+                    .ToList();
+            }
+        });
+    }
+
+    public async Task<List<DocumentInfo>> SearchByFormTypeAsync(List<string> formTypes, List<string>? companyNames = null,
+        DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var query = _documents.Where(d => 
+                    formTypes.Any(ft => d.Form.Equals(ft, StringComparison.OrdinalIgnoreCase)));
+
+                if (companyNames?.Any() == true)
+                {
+                    query = query.Where(d => companyNames.Any(cn => 
+                        d.CompanyName.Contains(cn, StringComparison.OrdinalIgnoreCase)));
+                }
+
+                if (startDate.HasValue)
+                {
+                    query = query.Where(d => d.FilingDate >= startDate.Value);
+                }
+
+                if (endDate.HasValue)
+                {
+                    query = query.Where(d => d.FilingDate <= endDate.Value);
+                }
+
+                return query
+                    .OrderByDescending(d => d.FilingDate)
+                    .Skip(skip)
+                    .Take(take)
+                    .ToList();
+            }
+        });
+    }
+
+    public async Task<int> GetSearchResultCountAsync(string? companyName = null, List<string>? formTypes = null,
+        DateTime? startDate = null, DateTime? endDate = null)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var query = _documents.AsQueryable();
+
+                if (!string.IsNullOrEmpty(companyName))
+                {
+                    query = query.Where(d => d.CompanyName.Contains(companyName, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (formTypes?.Any() == true)
+                {
+                    query = query.Where(d => formTypes.Any(ft => 
+                        d.Form.Equals(ft, StringComparison.OrdinalIgnoreCase)));
+                }
+
+                if (startDate.HasValue)
+                {
+                    query = query.Where(d => d.FilingDate >= startDate.Value);
+                }
+
+                if (endDate.HasValue)
+                {
+                    query = query.Where(d => d.FilingDate <= endDate.Value);
+                }
+
+                return query.Count();
+            }
+        });
+    }
 }

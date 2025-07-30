@@ -395,4 +395,168 @@ public class AzureStorageService : ICrawlStorageService
     }
 
     public string GetStorageType() => "Azure Table Storage";
+
+    public async Task<List<DocumentInfo>> SearchByCompanyAsync(string companyName, List<string>? formTypes = null, 
+        DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50)
+    {
+        if (_tableClient == null)
+        {
+            _logger.LogWarning("Azure Table Storage not initialized. Returning empty search results.");
+            return new List<DocumentInfo>();
+        }
+
+        try
+        {
+            string filter = $"CompanyName eq '{companyName}'";
+            
+            if (formTypes?.Any() == true)
+            {
+                var formFilter = string.Join(" or ", formTypes.Select(ft => $"Form eq '{ft}'"));
+                filter = $"({filter}) and ({formFilter})";
+            }
+
+            var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
+            var documents = results.Select(entity => new DocumentInfo
+            {
+                Id = entity.RowKey,
+                CompanyName = entity.GetString("CompanyName") ?? "",
+                Form = entity.GetString("Form") ?? "",
+                FilingDate = DateTime.Parse(entity.GetString("FilingDate") ?? DateTime.MinValue.ToString()),
+                Url = entity.GetString("Url") ?? "",
+                Processed = entity.GetBoolean("Processed") ?? false,
+                ProcessedDate = entity.ContainsKey("ProcessedDate") ? entity.GetDateTimeOffset("ProcessedDate")?.DateTime : null,
+                Success = entity.GetBoolean("Success") ?? true,
+                ErrorMessage = entity.GetString("ErrorMessage")
+            }).AsQueryable();
+
+            if (startDate.HasValue)
+            {
+                documents = documents.Where(d => d.FilingDate >= startDate.Value);
+            }
+
+            if (endDate.HasValue)
+            {
+                documents = documents.Where(d => d.FilingDate <= endDate.Value);
+            }
+
+            return documents
+                .OrderByDescending(d => d.FilingDate)
+                .Skip(skip)
+                .Take(take)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to search documents by company");
+            return new List<DocumentInfo>();
+        }
+    }
+
+    public async Task<List<DocumentInfo>> SearchByFormTypeAsync(List<string> formTypes, List<string>? companyNames = null,
+        DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50)
+    {
+        if (_tableClient == null)
+        {
+            _logger.LogWarning("Azure Table Storage not initialized. Returning empty search results.");
+            return new List<DocumentInfo>();
+        }
+
+        try
+        {
+            var formFilter = string.Join(" or ", formTypes.Select(ft => $"Form eq '{ft}'"));
+            string filter = $"({formFilter})";
+            
+            if (companyNames?.Any() == true)
+            {
+                var companyFilter = string.Join(" or ", companyNames.Select(cn => $"CompanyName eq '{cn}'"));
+                filter = $"({filter}) and ({companyFilter})";
+            }
+
+            var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
+            var documents = results.Select(entity => new DocumentInfo
+            {
+                Id = entity.RowKey,
+                CompanyName = entity.GetString("CompanyName") ?? "",
+                Form = entity.GetString("Form") ?? "",
+                FilingDate = DateTime.Parse(entity.GetString("FilingDate") ?? DateTime.MinValue.ToString()),
+                Url = entity.GetString("Url") ?? "",
+                Processed = entity.GetBoolean("Processed") ?? false,
+                ProcessedDate = entity.ContainsKey("ProcessedDate") ? entity.GetDateTimeOffset("ProcessedDate")?.DateTime : null,
+                Success = entity.GetBoolean("Success") ?? true,
+                ErrorMessage = entity.GetString("ErrorMessage")
+            }).AsQueryable();
+
+            if (startDate.HasValue)
+            {
+                documents = documents.Where(d => d.FilingDate >= startDate.Value);
+            }
+
+            if (endDate.HasValue)
+            {
+                documents = documents.Where(d => d.FilingDate <= endDate.Value);
+            }
+
+            return documents
+                .OrderByDescending(d => d.FilingDate)
+                .Skip(skip)
+                .Take(take)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to search documents by form type");
+            return new List<DocumentInfo>();
+        }
+    }
+
+    public async Task<int> GetSearchResultCountAsync(string? companyName = null, List<string>? formTypes = null,
+        DateTime? startDate = null, DateTime? endDate = null)
+    {
+        if (_tableClient == null)
+        {
+            _logger.LogWarning("Azure Table Storage not initialized. Returning zero count.");
+            return 0;
+        }
+
+        try
+        {
+            var filters = new List<string>();
+
+            if (!string.IsNullOrEmpty(companyName))
+            {
+                filters.Add($"CompanyName eq '{companyName}'");
+            }
+
+            if (formTypes?.Any() == true)
+            {
+                var formFilter = string.Join(" or ", formTypes.Select(ft => $"Form eq '{ft}'"));
+                filters.Add($"({formFilter})");
+            }
+
+            string filter = filters.Any() ? string.Join(" and ", filters) : "";
+            var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
+            
+            var documents = results.Select(entity => new DocumentInfo
+            {
+                FilingDate = DateTime.Parse(entity.GetString("FilingDate") ?? DateTime.MinValue.ToString())
+            }).AsQueryable();
+
+            if (startDate.HasValue)
+            {
+                documents = documents.Where(d => d.FilingDate >= startDate.Value);
+            }
+
+            if (endDate.HasValue)
+            {
+                documents = documents.Where(d => d.FilingDate <= endDate.Value);
+            }
+
+            return documents.Count();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get search result count");
+            return 0;
+        }
+    }
 }
