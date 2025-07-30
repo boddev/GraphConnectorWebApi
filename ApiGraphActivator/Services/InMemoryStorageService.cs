@@ -340,4 +340,15 @@ public class InMemoryStorageService : ICrawlStorageService
             }
         });
     }
+
+    public async Task<DocumentInfo?> GetDocumentByIdAsync(string documentId)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                return _documents.FirstOrDefault(d => d.Id.Equals(documentId, StringComparison.OrdinalIgnoreCase));
+            }
+        });
+    }
 }

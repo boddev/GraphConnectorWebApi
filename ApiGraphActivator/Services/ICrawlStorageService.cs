@@ -22,6 +22,7 @@ public interface ICrawlStorageService
         DateTime? startDate = null, DateTime? endDate = null, int skip = 0, int take = 50);
     Task<int> GetSearchResultCountAsync(string? companyName = null, List<string>? formTypes = null,
         DateTime? startDate = null, DateTime? endDate = null);
+    Task<DocumentInfo?> GetDocumentByIdAsync(string documentId);
 }
 
 public class DocumentInfo
