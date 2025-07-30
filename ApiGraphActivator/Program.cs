@@ -77,6 +77,7 @@ var staticServiceLogger = loggerFactory.CreateLogger("ApiGraphActivator.Services
 // Pass the correctly created logger to your static services
 EdgarService.InitializeLogger(staticServiceLogger);
 ConnectionService.InitializeLogger(staticServiceLogger);
+PdfProcessingService.InitializeLogger(staticServiceLogger);
 
 // Initialize storage service for EdgarService
 var storageConfigService = app.Services.GetRequiredService<StorageConfigurationService>();

@@ -322,45 +322,86 @@ public static class EdgarService
                         }
                         _logger?.LogTrace($"Fetched {urlField}");
 
+                        string response = "";
+                        
                         if(urlField.Contains(".pdf"))
                         {
-                            _logger?.LogTrace($"PDF document found. Skipping {urlField}.");
-                            await UpdateProcessedItem(urlField, false, "PDF document - not supported");
-                            continue;
+                            _logger?.LogTrace($"PDF document found. Processing {urlField}");
+                            try
+                            {
+                                // Fetch PDF content as bytes instead of string
+                                byte[]? pdfBytes = await FetchBytesWithExponentialBackoff(urlField).ConfigureAwait(false);
+                                
+                                if (pdfBytes == null || pdfBytes.Length == 0)
+                                {
+                                    _logger?.LogError($"Failed to fetch PDF bytes from {urlField}");
+                                    await UpdateProcessedItem(urlField, false, "Failed to fetch PDF content");
+                                    continue;
+                                }
+                                
+                                // Validate it's a real PDF
+                                if (!PdfProcessingService.IsValidPdf(pdfBytes))
+                                {
+                                    _logger?.LogWarning($"Invalid PDF format for {urlField}");
+                                    await UpdateProcessedItem(urlField, false, "Invalid PDF format");
+                                    continue;
+                                }
+                                
+                                // Extract text from PDF
+                                response = await PdfProcessingService.ExtractTextFromPdfAsync(pdfBytes, 50); // Limit to 50 pages
+                                
+                                if (string.IsNullOrWhiteSpace(response))
+                                {
+                                    _logger?.LogWarning($"No text could be extracted from PDF {urlField}");
+                                    await UpdateProcessedItem(urlField, false, "No extractable text in PDF");
+                                    continue;
+                                }
+                                
+                                _logger?.LogInformation($"Successfully extracted {response.Length} characters from PDF {urlField}");
+                            }
+                            catch (Exception pdfEx)
+                            {
+                                _logger?.LogError($"Error processing PDF {urlField}: {pdfEx.Message}");
+                                await UpdateProcessedItem(urlField, false, $"PDF processing error: {pdfEx.Message}");
+                                continue;
+                            }
                         }
+                        else
+                        {
+                            // Process HTML documents as before
+                            //OpenAIService openAIService = new OpenAIService();
+                            //string response = openAIService.GetChatResponse(retVal);
 
-                        //OpenAIService openAIService = new OpenAIService();
-                        //string response = openAIService.GetChatResponse(retVal);
-
-                        HtmlDocument htmlDoc = new HtmlDocument();
-                        htmlDoc.LoadHtml(retVal);
-                        
-                        // Extract text content and clean it up
-                        string response = htmlDoc.DocumentNode.InnerText;
-                        
-                        // Decode HTML entities (like &amp;, &lt;, &gt;, etc.)
-                        response = System.Net.WebUtility.HtmlDecode(response);
-                        
-                        // Remove XML declarations and processing instructions
-                        response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?xml[^>]*\?>", "", RegexOptions.IgnoreCase);
-                        response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?[^>]*\?>", "", RegexOptions.IgnoreCase);
-                        
-                        // Remove checkbox symbols and other special Unicode characters
-                        response = response.Replace("☐", ""); // Empty checkbox
-                        response = response.Replace("☑", ""); // Checked checkbox
-                        response = response.Replace("☒", ""); // X-marked checkbox
-                        response = response.Replace("✓", ""); // Checkmark
-                        response = response.Replace("✗", ""); // X mark
-                        
-                        // Remove XBRL namespace declarations and technical metadata
-                        response = System.Text.RegularExpressions.Regex.Replace(response, @"iso4217:\w+", "", RegexOptions.IgnoreCase);
-                        response = System.Text.RegularExpressions.Regex.Replace(response, @"xbrli:\w+", "", RegexOptions.IgnoreCase);
-                        response = System.Text.RegularExpressions.Regex.Replace(response, @"\b\d{10}\b", ""); // Remove 10-digit numbers that look like IDs
-                        
-                        // Clean up whitespace and formatting
-                        response = System.Text.RegularExpressions.Regex.Replace(response, @"\s+", " "); // Replace multiple whitespace with single space
-                        response = System.Text.RegularExpressions.Regex.Replace(response, @"[\r\n]+", "\n"); // Normalize line breaks
-                        response = response.Trim(); // Remove leading/trailing whitespace
+                            HtmlDocument htmlDoc = new HtmlDocument();
+                            htmlDoc.LoadHtml(retVal);
+                            
+                            // Extract text content and clean it up
+                            response = htmlDoc.DocumentNode.InnerText;
+                            
+                            // Decode HTML entities (like &amp;, &lt;, &gt;, etc.)
+                            response = System.Net.WebUtility.HtmlDecode(response);
+                            
+                            // Remove XML declarations and processing instructions
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?xml[^>]*\?>", "", RegexOptions.IgnoreCase);
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?[^>]*\?>", "", RegexOptions.IgnoreCase);
+                            
+                            // Remove checkbox symbols and other special Unicode characters
+                            response = response.Replace("☐", ""); // Empty checkbox
+                            response = response.Replace("☑", ""); // Checked checkbox
+                            response = response.Replace("☒", ""); // X-marked checkbox
+                            response = response.Replace("✓", ""); // Checkmark
+                            response = response.Replace("✗", ""); // X mark
+                            
+                            // Remove XBRL namespace declarations and technical metadata
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"iso4217:\w+", "", RegexOptions.IgnoreCase);
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"xbrli:\w+", "", RegexOptions.IgnoreCase);
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"\b\d{10}\b", ""); // Remove 10-digit numbers that look like IDs
+                            
+                            // Clean up whitespace and formatting
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"\s+", " "); // Replace multiple whitespace with single space
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"[\r\n]+", "\n"); // Normalize line breaks
+                            response = response.Trim(); // Remove leading/trailing whitespace
+                        }
 
 
                         // Upload to blob storage if available
@@ -630,6 +671,57 @@ public static class EdgarService
         }
 
         return "FAILED";
+    }
+
+    // Define a method to fetch binary data (for PDFs) with exponential backoff
+    private static async Task<byte[]?> FetchBytesWithExponentialBackoff(string url)
+    {
+        int maxRetries = 5;
+        int delay = 5000; // Initial delay in milliseconds
+
+        for (int retry = 0; retry <= maxRetries; retry++)
+        {
+            try
+            {
+                var response = await _client.GetAsync(url).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                }
+                else if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    if (response.Headers.TryGetValues("Retry-After", out var values))
+                    {
+                        string retryAfter = values.First();
+                        _logger?.LogTrace($"Rate limit exceeded. Retrying after {retryAfter} seconds.");
+                        int retryAfterSeconds = int.Parse(retryAfter);
+                        await Task.Delay(retryAfterSeconds * 1000);
+                    }
+                    else
+                    {
+                        _logger?.LogWarning($"HTTP 429 Too Many Requests. Retrying in {delay}ms...");
+                        await Task.Delay(delay);
+                        delay *= 2; // Exponential backoff
+                    }
+                }
+                else
+                {
+                    response.EnsureSuccessStatusCode();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError($"Error fetching binary data from URL {url}: {ex.Message}");
+                if (retry == maxRetries)
+                {
+                    _logger?.LogTrace($"Max retries reached for URL {url}. Giving up.");
+                }
+                await Task.Delay(delay).ConfigureAwait(false);
+                delay *= 2; // Exponential backoff
+            }
+        }
+
+        return null;
     }
 
     // Define a method to initialize the logger
