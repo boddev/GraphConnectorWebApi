@@ -559,4 +559,76 @@ public class AzureStorageService : ICrawlStorageService
             return 0;
         }
     }
+
+    // Conversation management methods - stub implementations
+    public Task<ConversationSession> CreateSessionAsync(string? userId = null, TimeSpan? ttl = null)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task<ConversationSession?> GetSessionAsync(string sessionId)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task UpdateSessionAsync(ConversationSession session)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task DeleteSessionAsync(string sessionId)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task<List<ConversationSession>> GetUserSessionsAsync(string userId)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task CleanupExpiredSessionsAsync()
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task<Conversation> CreateConversationAsync(string sessionId, string? title = null)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task<Conversation?> GetConversationAsync(string conversationId)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task UpdateConversationAsync(Conversation conversation)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task DeleteConversationAsync(string conversationId)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task<List<Conversation>> GetSessionConversationsAsync(string sessionId)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task<ConversationMessage> AddMessageAsync(string conversationId, ConversationMessageRole role, 
+        string content, List<DocumentCitation>? citations = null, Dictionary<string, object>? metadata = null)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task<List<ConversationMessage>> GetConversationMessagesAsync(string conversationId, int skip = 0, int take = 100)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
+
+    public Task UpdateMessageAsync(ConversationMessage message)
+    {
+        throw new NotImplementedException("Conversation management not implemented for Azure Storage");
+    }
 }
