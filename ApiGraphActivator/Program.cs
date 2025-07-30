@@ -66,6 +66,18 @@ builder.Services.AddScoped<CompanySearchTool>();
 builder.Services.AddScoped<FormFilterTool>();
 builder.Services.AddScoped<ContentSearchTool>();
 
+// Register MCP prompt template services
+builder.Services.AddSingleton<PromptTemplateService>();
+builder.Services.AddScoped<McpPromptsService>();
+builder.Services.AddScoped<PromptAnalysisService>();
+
+// Register OpenAI service only if API key is available
+var openAIKey = Environment.GetEnvironmentVariable("OpenAIKey");
+if (!string.IsNullOrEmpty(openAIKey))
+{
+    builder.Services.AddScoped<OpenAIService>();
+}
+
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
@@ -695,5 +707,177 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
 .WithOpenApi()
 .WithSummary("MCP Tools Discovery")
 .WithDescription("List all available MCP document search tools with their schemas and endpoints");
+
+// MCP Prompts Endpoints (per MCP specification)
+app.MapGet("/mcp/prompts/list", async (McpPromptsService promptsService, string? cursor) =>
+{
+    try
+    {
+        var request = cursor != null ? new McpPromptsListRequest { Cursor = cursor } : null;
+        var result = await promptsService.GetPromptsAsync(request);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error listing MCP prompts: {Message}", ex.Message);
+        return Results.Problem($"Failed to list prompts: {ex.Message}");
+    }
+})
+.WithName("McpPromptsList")
+.WithOpenApi()
+.WithSummary("MCP Prompts List")
+.WithDescription("List all available prompt templates as per MCP specification");
+
+app.MapPost("/mcp/prompts/get", async (McpPromptGetRequest request, McpPromptsService promptsService) =>
+{
+    try
+    {
+        var result = await promptsService.GetPromptAsync(request.Name, request.Arguments);
+        return Results.Ok(result);
+    }
+    catch (ArgumentException ex)
+    {
+        staticServiceLogger.LogWarning("Invalid prompt request: {Message}", ex.Message);
+        return Results.NotFound(ex.Message);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting MCP prompt: {Message}", ex.Message);
+        return Results.Problem($"Failed to get prompt: {ex.Message}");
+    }
+})
+.WithName("McpPromptsGet")
+.WithOpenApi()
+.WithSummary("MCP Prompts Get")
+.WithDescription("Get a specific prompt template with optional parameter rendering");
+
+// Additional prompt template management endpoints
+app.MapGet("/mcp/prompts/templates", (PromptTemplateService templateService, string? category) =>
+{
+    try
+    {
+        var templates = string.IsNullOrEmpty(category) 
+            ? templateService.GetAllTemplates()
+            : templateService.GetTemplatesByCategory(category);
+
+        return Results.Ok(new { templates = templates.ToList() });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting prompt templates: {Message}", ex.Message);
+        return Results.Problem($"Failed to get templates: {ex.Message}");
+    }
+})
+.WithName("PromptsTemplatesList")
+.WithOpenApi()
+.WithSummary("Get Prompt Templates")
+.WithDescription("Get all prompt templates or filter by category");
+
+app.MapPost("/mcp/prompts/render", async (RenderPromptRequest request, PromptTemplateService templateService) =>
+{
+    try
+    {
+        var result = await templateService.RenderTemplateAsync(request.TemplateName, request.Parameters);
+        return Results.Ok(result);
+    }
+    catch (ArgumentException ex)
+    {
+        staticServiceLogger.LogWarning("Invalid render request: {Message}", ex.Message);
+        return Results.BadRequest(ex.Message);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error rendering prompt template: {Message}", ex.Message);
+        return Results.Problem($"Failed to render template: {ex.Message}");
+    }
+})
+.WithName("PromptsRender")
+.WithOpenApi()
+.WithSummary("Render Prompt Template")
+.WithDescription("Render a prompt template with provided parameters");
+
+app.MapPost("/mcp/prompts/validate", (RenderPromptRequest request, PromptTemplateService templateService) =>
+{
+    try
+    {
+        var template = templateService.GetTemplate(request.TemplateName);
+        if (template == null)
+        {
+            return Results.NotFound($"Template '{request.TemplateName}' not found");
+        }
+
+        var validation = templateService.ValidateParameters(template, request.Parameters);
+        return Results.Ok(validation);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error validating prompt parameters: {Message}", ex.Message);
+        return Results.Problem($"Failed to validate parameters: {ex.Message}");
+    }
+})
+.WithName("PromptsValidate")
+.WithOpenApi()
+.WithSummary("Validate Prompt Parameters")
+.WithDescription("Validate parameters against a prompt template's requirements");
+
+// Prompt Analysis Integration Endpoints
+app.MapPost("/mcp/prompts/analyze", async (DocumentAnalysisRequest request, PromptAnalysisService analysisService, string templateName) =>
+{
+    try
+    {
+        var result = await analysisService.AnalyzeDocumentAsync(templateName, request);
+        return Results.Ok(result);
+    }
+    catch (ArgumentException ex)
+    {
+        staticServiceLogger.LogWarning("Invalid analysis request: {Message}", ex.Message);
+        return Results.BadRequest(ex.Message);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error analyzing document: {Message}", ex.Message);
+        return Results.Problem($"Failed to analyze document: {ex.Message}");
+    }
+})
+.WithName("PromptsAnalyze")
+.WithOpenApi()
+.WithSummary("Analyze Document with Prompt Template")
+.WithDescription("Analyze a document using AI with a specific prompt template");
+
+app.MapGet("/mcp/prompts/suggestions", async (PromptAnalysisService analysisService, string documentType, string? companyName) =>
+{
+    try
+    {
+        var suggestions = await analysisService.GetAnalysisSuggestionsAsync(documentType, companyName ?? "");
+        return Results.Ok(new { suggestions });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting analysis suggestions: {Message}", ex.Message);
+        return Results.Problem($"Failed to get suggestions: {ex.Message}");
+    }
+})
+.WithName("PromptsAnalysisSuggestions")
+.WithOpenApi()
+.WithSummary("Get Analysis Suggestions")
+.WithDescription("Get recommended prompt templates for a specific document type");
+
+app.MapPost("/mcp/prompts/batch-analyze", async (List<DocumentAnalysisRequest> requests, PromptAnalysisService analysisService, string templateName) =>
+{
+    try
+    {
+        var results = await analysisService.BatchAnalyzeAsync(templateName, requests);
+        return Results.Ok(new { results });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error in batch analysis: {Message}", ex.Message);
+        return Results.Problem($"Failed to perform batch analysis: {ex.Message}");
+    }
+})
+.WithName("PromptsBatchAnalyze")
+.WithOpenApi()
+.WithSummary("Batch Analyze Documents")
+.WithDescription("Analyze multiple documents using the same prompt template");
 
 app.Run();
