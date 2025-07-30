@@ -63,10 +63,21 @@ builder.Services.AddScoped<DocumentSearchService>(serviceProvider =>
     var storageService = storageConfigService.GetStorageServiceAsync().GetAwaiter().GetResult();
     return new DocumentSearchService(logger, storageService);
 });
+
+// Register OpenAI service for AI analysis
+builder.Services.AddScoped<OpenAIService>();
+
+// Register existing MCP search tools
 builder.Services.AddScoped<CompanySearchTool>();
 builder.Services.AddScoped<FormFilterTool>();
 builder.Services.AddScoped<ContentSearchTool>();
 
+
+// Register new AI analysis tools
+builder.Services.AddScoped<DocumentSummarizationTool>();
+builder.Services.AddScoped<DocumentQuestionAnswerTool>();
+builder.Services.AddScoped<DocumentComparisonTool>();
+builder.Services.AddScoped<FinancialAnalysisTool>();
 // Register MCP resource services
 builder.Services.AddScoped<ApiGraphActivator.McpResources.ResourceService>();
 
@@ -89,6 +100,7 @@ builder.Services.AddScoped<ConversationService>(serviceProvider =>
     var documentSearchService = serviceProvider.GetRequiredService<DocumentSearchService>();
     return new ConversationService(logger, storageService, documentSearchService);
 });
+
 
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
@@ -877,40 +889,157 @@ app.MapPost("/mcp/tools/content-search", async (ContentSearchParameters paramete
 .WithSummary("MCP Tool: Search document content")
 .WithDescription("Perform full-text search within SEC filing document content with highlighting and relevance scoring");
 
+// MCP AI Analysis Tool Endpoints
+app.MapPost("/mcp/tools/document-summarization", async (DocumentSummarizationParameters parameters, DocumentSummarizationTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing document summarization tool: {Message}", ex.Message);
+        return Results.Problem($"Document summarization failed: {ex.Message}");
+    }
+})
+.WithName("McpDocumentSummarization")
+.WithOpenApi()
+.WithSummary("MCP Tool: AI Document Summarization")
+.WithDescription("Generate comprehensive summaries of SEC filing documents using AI analysis with different summary types");
+
+app.MapPost("/mcp/tools/document-qa", async (DocumentQuestionAnswerParameters parameters, DocumentQuestionAnswerTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing document Q&A tool: {Message}", ex.Message);
+        return Results.Problem($"Document Q&A failed: {ex.Message}");
+    }
+})
+.WithName("McpDocumentQuestionAnswer")
+.WithOpenApi()
+.WithSummary("MCP Tool: AI Document Question Answering")
+.WithDescription("Answer specific questions about SEC filing documents using AI analysis with citations and supporting evidence");
+
+app.MapPost("/mcp/tools/document-comparison", async (DocumentComparisonParameters parameters, DocumentComparisonTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing document comparison tool: {Message}", ex.Message);
+        return Results.Problem($"Document comparison failed: {ex.Message}");
+    }
+})
+.WithName("McpDocumentComparison")
+.WithOpenApi()
+.WithSummary("MCP Tool: AI Document Comparison")
+.WithDescription("Perform comparative analysis across multiple SEC filing documents to identify differences, similarities, and trends");
+
+app.MapPost("/mcp/tools/financial-analysis", async (FinancialAnalysisParameters parameters, FinancialAnalysisTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing financial analysis tool: {Message}", ex.Message);
+        return Results.Problem($"Financial analysis failed: {ex.Message}");
+    }
+})
+.WithName("McpFinancialAnalysis")
+.WithOpenApi()
+.WithSummary("MCP Tool: AI Financial Analysis")
+.WithDescription("Perform comprehensive financial analysis of SEC filing documents with key metrics, ratios, and business insights");
+
 // MCP Tools Discovery Endpoint
-app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool, ContentSearchTool contentTool) =>
+app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool, ContentSearchTool contentTool,
+    DocumentSummarizationTool summarizationTool, DocumentQuestionAnswerTool qaTool, 
+    DocumentComparisonTool comparisonTool, FinancialAnalysisTool financialTool) =>
 {
     var tools = new[]
     {
+        // Document Search Tools
         new
         {
             name = companyTool.Name,
             description = companyTool.Description,
             inputSchema = companyTool.InputSchema,
-            endpoint = "/mcp/tools/company-search"
+            endpoint = "/mcp/tools/company-search",
+            category = "Document Search"
         },
         new
         {
             name = formTool.Name,
             description = formTool.Description,
             inputSchema = formTool.InputSchema,
-            endpoint = "/mcp/tools/form-filter"
+            endpoint = "/mcp/tools/form-filter",
+            category = "Document Search"
         },
         new
         {
             name = contentTool.Name,
             description = contentTool.Description,
             inputSchema = contentTool.InputSchema,
-            endpoint = "/mcp/tools/content-search"
+            endpoint = "/mcp/tools/content-search",
+            category = "Document Search"
+        },
+        // AI Analysis Tools
+        new
+        {
+            name = summarizationTool.Name,
+            description = summarizationTool.Description,
+            inputSchema = summarizationTool.InputSchema,
+            endpoint = "/mcp/tools/document-summarization",
+            category = "AI Analysis"
+        },
+        new
+        {
+            name = qaTool.Name,
+            description = qaTool.Description,
+            inputSchema = qaTool.InputSchema,
+            endpoint = "/mcp/tools/document-qa",
+            category = "AI Analysis"
+        },
+        new
+        {
+            name = comparisonTool.Name,
+            description = comparisonTool.Description,
+            inputSchema = comparisonTool.InputSchema,
+            endpoint = "/mcp/tools/document-comparison",
+            category = "AI Analysis"
+        },
+        new
+        {
+            name = financialTool.Name,
+            description = financialTool.Description,
+            inputSchema = financialTool.InputSchema,
+            endpoint = "/mcp/tools/financial-analysis",
+            category = "AI Analysis"
         }
     };
 
-    return Results.Ok(new { tools });
+    return Results.Ok(new { 
+        tools, 
+        totalCount = tools.Length,
+        categories = new[] { "Document Search", "AI Analysis" },
+        description = "MCP tools for SEC document search and AI-powered analysis including summarization, Q&A, comparison, and financial analysis"
+    });
 })
 .WithName("McpToolsDiscovery")
 .WithOpenApi()
 .WithSummary("MCP Tools Discovery")
-.WithDescription("List all available MCP document search tools with their schemas and endpoints");
+.WithDescription("List all available MCP document search and AI analysis tools with their schemas and endpoints");
 
 
 // MCP Resources Endpoints

@@ -392,6 +392,12 @@ public class LocalFileStorageService : ICrawlStorageService
         return query.Count();
     }
 
+    public async Task<DocumentInfo?> GetDocumentByIdAsync(string documentId)
+    {
+        var documents = await LoadDocumentsAsync();
+        return documents.FirstOrDefault(d => d.Id.Equals(documentId, StringComparison.OrdinalIgnoreCase));
+    }
+
     private async Task<List<DocumentInfo>> LoadDocumentsAsync()
     {
         try

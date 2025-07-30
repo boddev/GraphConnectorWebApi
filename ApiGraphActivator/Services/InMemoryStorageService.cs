@@ -344,22 +344,14 @@ public class InMemoryStorageService : ICrawlStorageService
         });
     }
 
-    // Conversation management methods
-    public async Task<ConversationSession> CreateSessionAsync(string? userId = null, TimeSpan? ttl = null)
+
+    public async Task<DocumentInfo?> GetDocumentByIdAsync(string documentId)
     {
         return await Task.Run(() =>
         {
             lock (_lock)
             {
-                var session = new ConversationSession
-                {
-                    UserId = userId,
-                    ExpiresAt = ttl.HasValue ? DateTime.UtcNow.Add(ttl.Value) : DateTime.UtcNow.AddHours(24)
-                };
-
-                _sessions.Add(session);
-                _logger.LogTrace("Created session {SessionId} for user {UserId}", session.Id, userId ?? "anonymous");
-                return session;
+                return _documents.FirstOrDefault(d => d.Id.Equals(documentId, StringComparison.OrdinalIgnoreCase));
             }
         });
     }
