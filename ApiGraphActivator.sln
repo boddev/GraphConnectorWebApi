@@ -5,6 +5,8 @@ VisualStudioVersion = 17.12.35728.132 d17.12
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ApiGraphActivator", "ApiGraphActivator\ApiGraphActivator.csproj", "{E83B5D6E-F941-4C6C-8417-E06D57F5EE4A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ApiGraphActivator.Tests", "ApiGraphActivator.Tests\ApiGraphActivator.Tests.csproj", "{75ACA5A0-7CE8-4FC8-868B-0F3FA064DFCF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{E83B5D6E-F941-4C6C-8417-E06D57F5EE4A}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E83B5D6E-F941-4C6C-8417-E06D57F5EE4A}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E83B5D6E-F941-4C6C-8417-E06D57F5EE4A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{75ACA5A0-7CE8-4FC8-868B-0F3FA064DFCF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75ACA5A0-7CE8-4FC8-868B-0F3FA064DFCF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75ACA5A0-7CE8-4FC8-868B-0F3FA064DFCF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75ACA5A0-7CE8-4FC8-868B-0F3FA064DFCF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
