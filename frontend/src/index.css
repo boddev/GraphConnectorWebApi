@@ -1,0 +1,575 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f5f5f5;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+.app-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.app-header {
+  background-color: #282c34;
+  padding: 20px;
+  color: white;
+  margin-bottom: 30px;
+  border-radius: 8px;
+}
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.header-text {
+  text-align: left;
+}
+
+.header-text h1 {
+  margin: 0 0 8px 0;
+}
+
+.header-text p {
+  margin: 0;
+  opacity: 0.9;
+}
+
+.storage-config-button {
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background-color 0.2s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.storage-config-button:hover {
+  background-color: #45a049;
+  transform: translateY(-1px);
+}
+
+.storage-config-button:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    gap: 16px;
+  }
+  
+  .header-text {
+    text-align: center;
+  }
+  
+  .storage-config-button {
+    width: 100%;
+  }
+}
+
+/* Application Description Section */
+.app-description {
+  margin-bottom: 30px;
+}
+
+.description-card {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 25px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.description-card h2 {
+  color: #495057;
+  margin-bottom: 15px;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.description-card p {
+  color: #6c757d;
+  line-height: 1.6;
+  margin-bottom: 15px;
+}
+
+.features-list {
+  list-style: none;
+  padding: 0;
+  margin: 15px 0;
+}
+
+.features-list li {
+  background-color: white;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  padding: 12px 15px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.features-list li strong {
+  color: #007acc;
+  font-weight: 600;
+}
+
+.integration-note {
+  background-color: #e3f2fd;
+  border-left: 4px solid #2196f3;
+  padding: 12px 15px;
+  border-radius: 4px;
+  margin-top: 20px;
+  font-style: italic;
+  color: #1565c0;
+}
+
+.main-content {
+  background-color: white;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.section {
+  margin-bottom: 30px;
+}
+
+.section h2 {
+  color: #333;
+  margin-bottom: 15px;
+  border-bottom: 2px solid #007acc;
+  padding-bottom: 5px;
+}
+
+.search-container {
+  margin-bottom: 20px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  border: 2px solid #ddd;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: #007acc;
+}
+
+.select-all-container {
+  margin: 15px 0;
+  padding: 10px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.select-all-label {
+  display: flex;
+  align-items: center;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.select-all-label input {
+  margin-right: 10px;
+  transform: scale(1.2);
+}
+
+.companies-list {
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+  background-color: white;
+}
+
+.company-item {
+  padding: 12px;
+  border-bottom: 1px solid #eee;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.company-item:hover {
+  background-color: #f5f5f5;
+}
+
+.company-item:last-child {
+  border-bottom: none;
+}
+
+.company-checkbox {
+  margin-right: 12px;
+  transform: scale(1.1);
+}
+
+.company-info {
+  flex: 1;
+}
+
+.company-name {
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 2px;
+}
+
+.company-ticker {
+  font-size: 14px;
+  color: #666;
+  font-family: monospace;
+}
+
+.selected-count {
+  margin: 15px 0;
+  padding: 10px;
+  background-color: #e7f3ff;
+  border-radius: 4px;
+  color: #0066cc;
+  font-weight: 500;
+}
+
+.actions-container {
+  margin-top: 30px;
+  text-align: center;
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.crawl-button {
+  background-color: #007acc;
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  font-size: 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-width: 200px;
+}
+
+.crawl-button:hover:not(:disabled) {
+  background-color: #005a9e;
+}
+
+.crawl-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.recrawl-button {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  font-size: 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-width: 200px;
+}
+
+.recrawl-button:hover:not(:disabled) {
+  background-color: #218838;
+}
+
+.recrawl-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.error {
+  background-color: #ffe6e6;
+  color: #cc0000;
+  padding: 15px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.success {
+  background-color: #e6ffe6;
+  color: #006600;
+  padding: 15px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.no-results {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+  font-style: italic;
+}
+
+.stats {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.stat-item {
+  text-align: center;
+}
+
+.stat-number {
+  font-size: 24px;
+  font-weight: bold;
+  color: #007acc;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #666;
+}
+
+/* Selected Companies Section */
+.selected-companies-section {
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #e3f2fd;
+  border-radius: 8px;
+  border-left: 4px solid #007acc;
+}
+
+.selected-companies-section h3 {
+  margin: 0 0 15px 0;
+  color: #1565c0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.selected-companies-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.selected-company-item {
+  display: flex;
+  align-items: center;
+  background-color: #007acc;
+  color: white;
+  padding: 8px 12px;
+  border-radius: 20px;
+  font-size: 14px;
+  max-width: 300px;
+}
+
+.selected-company-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.selected-company-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selected-company-ticker {
+  font-size: 12px;
+  opacity: 0.9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remove-company-btn {
+  background: none;
+  border: none;
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-left: 8px;
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background-color 0.2s;
+}
+
+.remove-company-btn:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Crawl History Section */
+.crawl-history-summary {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f0f8ff;
+  border-radius: 8px;
+  border-left: 4px solid #28a745;
+}
+
+.history-stat {
+  text-align: center;
+}
+
+.history-stat-number {
+  font-size: 24px;
+  font-weight: bold;
+  color: #28a745;
+}
+
+.history-stat-date {
+  font-size: 16px;
+  font-weight: 600;
+  color: #28a745;
+}
+
+.history-stat-label {
+  font-size: 14px;
+  color: #666;
+  margin-top: 4px;
+}
+
+.no-history {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+  font-style: italic;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+}
+
+.crawled-companies-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.crawled-company-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background-color: #e8f5e8;
+  border: 1px solid #c3e6c3;
+  border-radius: 8px;
+  padding: 12px;
+  transition: background-color 0.2s;
+}
+
+.crawled-company-item:hover {
+  background-color: #d4edd4;
+}
+
+.crawled-company-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.crawled-company-name {
+  font-weight: 500;
+  color: #155724;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 4px;
+}
+
+.crawled-company-ticker {
+  font-size: 12px;
+  color: #28a745;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.crawled-company-status {
+  font-size: 12px;
+  color: #28a745;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
+/* Tab Navigation Styles */
+.tab-navigation {
+  display: flex;
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.tab-button {
+  flex: 1;
+  padding: 16px 24px;
+  background-color: transparent;
+  border: none;
+  font-size: 16px;
+  font-weight: 500;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.tab-button:hover {
+  background-color: #f8f9fa;
+  color: #333;
+}
+
+.tab-button.active {
+  color: #007bff;
+  background-color: #f8f9fa;
+}
+
+.tab-button.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-color: #007bff;
+}
+
+.tab-button:focus {
+  outline: none;
+  box-shadow: inset 0 0 0 2px #007bff;
+}

@@ -1,0 +1,116 @@
+﻿{
+    "lastCrawlDate":  "2025-07-29T17:04:28.659Z",
+    "companies":  [
+                      {
+                          "title":  "ADVANCED MICRO DEVICES INC",
+                          "ticker":  "AMD",
+                          "cik":  2488
+                      },
+                      {
+                          "title":  "Alphabet Inc.",
+                          "ticker":  "GOOG",
+                          "cik":  1652044
+                      },
+                      {
+                          "title":  "AMAZON COM INC",
+                          "ticker":  "AMZN",
+                          "cik":  1018724
+                      },
+                      {
+                          "title":  "Apple Inc.",
+                          "ticker":  "AAPL",
+                          "cik":  320193
+                      },
+                      {
+                          "title":  "BANK OF AMERICA CORP /DE/",
+                          "ticker":  "BAC",
+                          "cik":  70858
+                      },
+                      {
+                          "title":  "CAPITAL ONE FINANCIAL CORP",
+                          "ticker":  "COF",
+                          "cik":  927628
+                      },
+                      {
+                          "title":  "CITIZENS FINANCIAL GROUP INC/RI",
+                          "ticker":  "CFG",
+                          "cik":  759944
+                      },
+                      {
+                          "title":  "FIFTH THIRD BANCORP",
+                          "ticker":  "FITB",
+                          "cik":  35527
+                      },
+                      {
+                          "title":  "INTEL CORP",
+                          "ticker":  "INTC",
+                          "cik":  50863
+                      },
+                      {
+                          "title":  "JPMORGAN CHASE \u0026 CO",
+                          "ticker":  "JPM",
+                          "cik":  19617
+                      },
+                      {
+                          "title":  "M\u0026T BANK CORP",
+                          "ticker":  "MTB",
+                          "cik":  36270
+                      },
+                      {
+                          "title":  "Meta Platforms, Inc.",
+                          "ticker":  "META",
+                          "cik":  1326801
+                      },
+                      {
+                          "title":  "MICROSOFT CORP",
+                          "ticker":  "MSFT",
+                          "cik":  789019
+                      },
+                      {
+                          "title":  "NVIDIA CORP",
+                          "ticker":  "NVDA",
+                          "cik":  1045810
+                      },
+                      {
+                          "title":  "ORACLE CORP",
+                          "ticker":  "ORCL",
+                          "cik":  1341439
+                      },
+                      {
+                          "title":  "PNC FINANCIAL SERVICES GROUP, INC.",
+                          "ticker":  "PNC",
+                          "cik":  713676
+                      },
+                      {
+                          "title":  "QUALCOMM INC/DE",
+                          "ticker":  "QCOM",
+                          "cik":  804328
+                      },
+                      {
+                          "title":  "REGIONS FINANCIAL CORP",
+                          "ticker":  "RF",
+                          "cik":  1281761
+                      },
+                      {
+                          "title":  "Salesforce, Inc.",
+                          "ticker":  "CRM",
+                          "cik":  1108524
+                      },
+                      {
+                          "title":  "TRUIST FINANCIAL CORP",
+                          "ticker":  "TFC",
+                          "cik":  92230
+                      },
+                      {
+                          "title":  "US BANCORP \\DE\\",
+                          "ticker":  "USB",
+                          "cik":  36104
+                      },
+                      {
+                          "title":  "WELLS FARGO \u0026 COMPANY/MN",
+                          "ticker":  "WFC",
+                          "cik":  72971
+                      }
+                  ],
+    "totalCompanies":  22
+}

@@ -18,6 +18,7 @@ public static class EdgarService
     private static ILogger? _logger;
     private static TableClient? _tableClient;
     private static BlobServiceClient? _blobServiceClient;
+    private static ICrawlStorageService? _storageService;
     static string? connectionString;
     static string? companyName;
     static string? companySymbol;
@@ -37,15 +38,29 @@ public static class EdgarService
     static EdgarService()
     {
         _client = new HttpClient();
-        _client.DefaultRequestHeaders.Add("User-Agent", $"Microsoft/1.0 ({Environment.GetEnvironmentVariable("EmailAddress")})");
+        _client.DefaultRequestHeaders.Add("User-Agent", $"Microsoft/1.0 ({Environment.GetEnvironmentVariable("EmailAddress") ?? "unknown@example.com"})");
         _logger?.LogTrace("HttpClient initialized with User-Agent header.");
 
         connectionString = Environment.GetEnvironmentVariable("TableStorage");
         companyTableName = Environment.GetEnvironmentVariable("CompanyTableName");
         processedTableName = Environment.GetEnvironmentVariable("ProcessedTableName");
         processedBlobContainerName = Environment.GetEnvironmentVariable("BlobContainerName");
-        _tableClient = new TableClient(connectionString, processedTableName);
-        _blobServiceClient = new BlobServiceClient(connectionString);
+        
+        // Only initialize Azure services if connection string is provided
+        if (!string.IsNullOrEmpty(connectionString) && !string.IsNullOrEmpty(processedTableName))
+        {
+            try
+            {
+                _tableClient = new TableClient(connectionString, processedTableName);
+                _blobServiceClient = new BlobServiceClient(connectionString);
+            }
+            catch (Exception)
+            {
+                // Azure services not available - continue without them
+                _tableClient = null;
+                _blobServiceClient = null;
+            }
+        }
     }
 
     public static bool IsBase64String(string base64)
@@ -64,25 +79,35 @@ public static class EdgarService
         var company_tkr_response = await _client.GetStringAsync(url).ConfigureAwait(false);
 
         // Create a list to store the table entities and filing documents
-        List<TableEntity> tableEntities;
+        List<TableEntity> tableEntities = new List<TableEntity>();
         List<EdgarExternalItem> filingDocuments = new List<EdgarExternalItem>();
 
         try
         {
-            TableClient tc = new TableClient(connectionString, companyTableName);
-            // Retrieve all entities from the table
-            tableEntities = tc.Query<TableEntity>().ToList();
+            // Only query table if Azure Table Storage is available
+            if (_tableClient != null && !string.IsNullOrEmpty(companyTableName))
+            {
+                TableClient tc = new TableClient(connectionString, companyTableName);
+                // Retrieve all entities from the table
+                tableEntities = tc.Query<TableEntity>().ToList();
+            }
+            else
+            {
+                _logger?.LogInformation("Azure Table Storage not configured. Skipping table-based company lookup.");
+                return filingDocuments;
+            }
+
             // Process the table entities as needed
             foreach (var entity in tableEntities)
             {
-                _logger.LogTrace($"PartitionKey: {entity.PartitionKey}, RowKey: {entity.RowKey}");
+                _logger?.LogTrace($"PartitionKey: {entity.PartitionKey}, RowKey: {entity.RowKey}");
                 companyName = entity.GetString("RowKey").Trim();
                 companySymbol = entity.GetString("Symbol").Trim();
                 cikLookup = ExtractCIK(company_tkr_response, companySymbol);
 
                 if (cikLookup == "Company not found")
                 {
-                    _logger.LogError($"Company not found for {companySymbol}");
+                    _logger?.LogError($"Company not found for {companySymbol}");
                     continue;
                 }
 
@@ -98,10 +123,65 @@ public static class EdgarService
         }
         catch (Exception ex)
         {
-            _logger.LogError($"Error retrieving entities from table: {ex.Message}");
+            _logger?.LogError($"Error retrieving entities from table: {ex.Message}");
             return filingDocuments;
         }
 
+        return filingDocuments;
+    }
+
+    // Static field to track companies with processed documents in current session
+    private static HashSet<string> _companiesWithProcessedDocuments = new HashSet<string>();
+
+    // Define an asynchronous static method to hydrate lookup data for specific companies
+    async public static Task<List<EdgarExternalItem>> HydrateLookupDataForCompanies(List<Company> companies)
+    {
+        _logger?.LogInformation("Processing {CompanyCount} companies", companies.Count);
+        
+        // Clear the tracking set for this session
+        _companiesWithProcessedDocuments.Clear();
+        
+        // Create a list to store filing documents
+        List<EdgarExternalItem> filingDocuments = new List<EdgarExternalItem>();
+
+        try
+        {
+            // Process each selected company
+            foreach (var company in companies)
+            {
+                _logger?.LogTrace($"Processing company: {company.Ticker} - {company.Title}");
+                
+                companyName = company.Title.Trim();
+                companySymbol = company.Ticker.Trim();
+                cikLookup = company.Cik.ToString();
+
+                string filingJson = await GetCIKFiling().ConfigureAwait(false);
+                var companyFilingDocuments = await GetDocument(filingJson).ConfigureAwait(false);
+                
+                if (companyFilingDocuments != null)
+                {
+                    filingDocuments.AddRange(companyFilingDocuments);
+                }
+                
+                _logger?.LogTrace($"Processed {companyFilingDocuments?.Count ?? 0} documents for {company.Ticker}");
+            }
+            
+            // Update timestamps only for companies that actually had documents processed
+            if (_companiesWithProcessedDocuments.Any())
+            {
+                var processedCompanies = companies.Where(c => _companiesWithProcessedDocuments.Contains(c.Title)).ToList();
+                await ConfigurationService.UpdateCrawledCompanyTimestampsAsync(processedCompanies);
+                _logger?.LogInformation("Updated timestamps for {ProcessedCount} companies that had documents processed", processedCompanies.Count);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError($"Error processing companies: {ex.Message}");
+            return filingDocuments;
+        }
+
+        _logger?.LogInformation("Completed processing. Total documents: {DocumentCount}, Companies with processed documents: {ProcessedCount}", 
+            filingDocuments.Count, _companiesWithProcessedDocuments.Count);
         return filingDocuments;
     }
 
@@ -174,16 +254,10 @@ public static class EdgarService
                         continue;
                     }
                     var theDate = DateTime.Parse(reportDate[i].ToString());
-                    int yearsOfData = 0;
-                    Int32.TryParse(Environment.GetEnvironmentVariable("YearsOfData"), out yearsOfData);
+                    int yearsOfData = await DataCollectionConfigurationService.GetYearsOfDataAsync();
 
-                    if (yearsOfData == 0)
-                    {
-                        yearsOfData = -3;
-                    }
-
-                    // Check if the date is more than 2 years in the past
-                    if (theDate < DateTime.Now.AddYears(yearsOfData))
+                    // Check if the date is more than the configured years in the past
+                    if (theDate < DateTime.Now.AddYears(-yearsOfData))
                     {
                         continue;
                     }
@@ -225,13 +299,12 @@ public static class EdgarService
                     DateTime? filingDate = DateTime.Parse(entity.GetString("FilingDate"));
                     var url = entity.GetString("Url");
 
-                        // Regex to match non-Base64 characters
-                    itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}";
-                    string pattern = @"[^A-Za-z0-9+/=]";
-                    itemId = Regex.Replace(itemId, pattern, "_");
-                    itemId = itemId.Replace("/","_");
-                    // Check if the form is one of the specified types
-                    if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K") || form.ToUpper().Contains("DEF 14A"))
+                    // Generate reproducible itemId based on URL for consistency
+                    itemId = DocumentIdGenerator.GenerateDocumentId(url);
+                    
+                    // Check if the form is one of the configured types
+                    var includedFormTypes = await DataCollectionConfigurationService.GetIncludedFormTypesAsync();
+                    if (includedFormTypes.Any(formType => form.ToUpper().Contains(formType.ToUpper())))
                     {
                         //itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
                         companyField = companyName;
@@ -243,56 +316,145 @@ public static class EdgarService
                         retVal = await FetchWithExponentialBackoff(urlField).ConfigureAwait(false);
                         if(retVal == "FAILED")
                         {
-                            _logger.LogError($"Failed to fetch URL {urlField} after multiple retries.");
+                            _logger?.LogError($"Failed to fetch URL {urlField} after multiple retries.");
+                            await UpdateProcessedItem(urlField, false, "Failed to fetch URL after multiple retries");
                             continue;
                         }
-                        _logger.LogTrace($"Fetched {urlField}");
+                        _logger?.LogTrace($"Fetched {urlField}");
 
+                        string response = "";
+                        
                         if(urlField.Contains(".pdf"))
                         {
-                            _logger.LogTrace($"PDF document found. Skipping {urlField}.");
-                            continue;
+                            _logger?.LogTrace($"PDF document found. Processing {urlField}");
+                            try
+                            {
+                                // Fetch PDF content as bytes instead of string
+                                byte[]? pdfBytes = await FetchBytesWithExponentialBackoff(urlField).ConfigureAwait(false);
+                                
+                                if (pdfBytes == null || pdfBytes.Length == 0)
+                                {
+                                    _logger?.LogError($"Failed to fetch PDF bytes from {urlField}");
+                                    await UpdateProcessedItem(urlField, false, "Failed to fetch PDF content");
+                                    continue;
+                                }
+                                
+                                // Validate it's a real PDF
+                                if (!PdfProcessingService.IsValidPdf(pdfBytes))
+                                {
+                                    _logger?.LogWarning($"Invalid PDF format for {urlField}");
+                                    await UpdateProcessedItem(urlField, false, "Invalid PDF format");
+                                    continue;
+                                }
+                                
+                                // Extract text from PDF
+                                response = await PdfProcessingService.ExtractTextFromPdfAsync(pdfBytes, 50); // Limit to 50 pages
+                                
+                                if (string.IsNullOrWhiteSpace(response))
+                                {
+                                    _logger?.LogWarning($"No text could be extracted from PDF {urlField}");
+                                    await UpdateProcessedItem(urlField, false, "No extractable text in PDF");
+                                    continue;
+                                }
+                                
+                                _logger?.LogInformation($"Successfully extracted {response.Length} characters from PDF {urlField}");
+                            }
+                            catch (Exception pdfEx)
+                            {
+                                _logger?.LogError($"Error processing PDF {urlField}: {pdfEx.Message}");
+                                await UpdateProcessedItem(urlField, false, $"PDF processing error: {pdfEx.Message}");
+                                continue;
+                            }
+                        }
+                        else
+                        {
+                            // Process HTML documents as before
+                            //OpenAIService openAIService = new OpenAIService();
+                            //string response = openAIService.GetChatResponse(retVal);
+
+                            HtmlDocument htmlDoc = new HtmlDocument();
+                            htmlDoc.LoadHtml(retVal);
+                            
+                            // Extract text content and clean it up
+                            response = htmlDoc.DocumentNode.InnerText;
+                            
+                            // Decode HTML entities (like &amp;, &lt;, &gt;, etc.)
+                            response = System.Net.WebUtility.HtmlDecode(response);
+                            
+                            // Remove XML declarations and processing instructions
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?xml[^>]*\?>", "", RegexOptions.IgnoreCase);
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?[^>]*\?>", "", RegexOptions.IgnoreCase);
+                            
+                            // Remove checkbox symbols and other special Unicode characters
+                            response = response.Replace("☐", ""); // Empty checkbox
+                            response = response.Replace("☑", ""); // Checked checkbox
+                            response = response.Replace("☒", ""); // X-marked checkbox
+                            response = response.Replace("✓", ""); // Checkmark
+                            response = response.Replace("✗", ""); // X mark
+                            
+                            // Remove XBRL namespace declarations and technical metadata
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"iso4217:\w+", "", RegexOptions.IgnoreCase);
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"xbrli:\w+", "", RegexOptions.IgnoreCase);
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"\b\d{10}\b", ""); // Remove 10-digit numbers that look like IDs
+                            
+                            // Clean up whitespace and formatting
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"\s+", " "); // Replace multiple whitespace with single space
+                            response = System.Text.RegularExpressions.Regex.Replace(response, @"[\r\n]+", "\n"); // Normalize line breaks
+                            response = response.Trim(); // Remove leading/trailing whitespace
                         }
 
-                        //OpenAIService openAIService = new OpenAIService();
-                        //string response = openAIService.GetChatResponse(retVal);
 
-                        HtmlDocument htmlDoc = new HtmlDocument();
-                        htmlDoc.LoadHtml(retVal);
-                        string response = htmlDoc.DocumentNode.InnerText;
-                        // Remove lines that start with "gaap:"
-                        // string[] lines = response.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                        // string cleanedResponse = string.Join(Environment.NewLine, 
-                        //     lines.Where(line => !line.TrimStart().StartsWith("gaap:", StringComparison.OrdinalIgnoreCase)));
+                        // Upload to blob storage if available
+                        if (_blobServiceClient != null && !string.IsNullOrEmpty(processedBlobContainerName))
+                        {
+                            try
+                            {
+                                // Get a reference to the container
+                                BlobContainerClient containerClient = _blobServiceClient.GetBlobContainerClient(processedBlobContainerName);
+                                
+                                // Create the container if it doesn't exist
+                                await containerClient.CreateIfNotExistsAsync();
+                                
+                                // Get a reference to the blob
+                                BlobClient blobClient = containerClient.GetBlobClient("/raw/" + itemId + ".html");
+                                await blobClient.UploadAsync(new BinaryData(retVal), true).ConfigureAwait(false);
+                                _logger?.LogTrace($"Uploaded HTML {itemId}.html to blob storage.");
 
-                        // // Use the cleaned response instead
-                        // response = cleanedResponse;
-
-                        
-
-                        // Get a reference to the container
-                        BlobContainerClient containerClient = _blobServiceClient.GetBlobContainerClient(processedBlobContainerName);
-                        
-                        // Create the container if it doesn't exist
-                        await containerClient.CreateIfNotExistsAsync();
-                        
-                        // Get a reference to the blob
-                        BlobClient blobClient = containerClient.GetBlobClient("/raw/" + itemId + ".html");
-                        await blobClient.UploadAsync(new BinaryData(retVal), true).ConfigureAwait(false);
-                        _logger.LogTrace($"Uploaded HTML {itemId}.html to blob storage.");
-
-                        blobClient = containerClient.GetBlobClient("/openai/" + itemId + ".txt");
-                        await blobClient.UploadAsync(new BinaryData(response), true).ConfigureAwait(false);
-                        _logger.LogTrace($"Uploaded OpenAI: {itemId}.text to blob storage.");
+                                blobClient = containerClient.GetBlobClient("/openai/" + itemId + ".txt");
+                                await blobClient.UploadAsync(new BinaryData(response), true).ConfigureAwait(false);
+                                _logger?.LogTrace($"Uploaded OpenAI: {itemId}.text to blob storage.");
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger?.LogWarning($"Failed to upload to blob storage: {ex.Message}");
+                            }
+                        }
+                        else
+                        {
+                            _logger?.LogTrace("Blob storage not configured. Skipping file uploads.");
+                        }
 
                         EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, response);
                         ContentService.Transform(edgarExternalItem);
+                        
+                        // Track that this company had a document successfully processed
+                        _companiesWithProcessedDocuments.Add(companyName);
+                        
+                        // Mark document as successfully processed
+                        await UpdateProcessedItem(urlField, true, null);
+                        _logger?.LogTrace($"Successfully processed document: {urlField}");
+                        
                         //externalItemData.Add(edgarExternalItem);
                     }
                 }
                 catch(Exception ex)
                 {
-                    _logger.LogError($"Error processing unprocessed data: {ex.Message}");
+                    _logger?.LogError($"Error processing unprocessed data: {ex.Message}");
+                    // Mark document as failed if we have the URL
+                    if (!string.IsNullOrEmpty(urlField))
+                    {
+                        await UpdateProcessedItem(urlField, false, $"Error processing document: {ex.Message}");
+                    }
                 }
 
             }
@@ -303,81 +465,158 @@ public static class EdgarService
     // Define a method to insert an item if it does not exist in the table
     public static async Task InsertItemIfNotExists(string companyName, string form, DateTime filingDate, string url)
     {
-        if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K") || form.ToUpper().Contains("DEF 14A"))
+        // Check if the form is one of the configured types
+        var includedFormTypes = await DataCollectionConfigurationService.GetIncludedFormTypesAsync();
+        if (!includedFormTypes.Any(formType => form.ToUpper().Contains(formType.ToUpper())))
         {
-            _logger?.LogTrace($"Checking if exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
-        }
-        else
-        {
-            _logger?.LogTrace($"Skipping non-10-K/10-Q/8-K/DEF 14A form: {form}");
+            _logger?.LogTrace($"Skipping form not in configured types: {form}");
             return;
         }
 
-        // Define the query filter
-        string filter = $"Url eq '{url}'";
-
-        // Execute the query
-        List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
-
-        if (results.Count == 0)
+        try
         {
-            // Create a new entity
-            var newEntity = new TableEntity
+            // Use new storage service if available, otherwise fall back to old Azure Table Storage
+            if (_storageService != null)
             {
-                PartitionKey = companyName,
-                RowKey = Guid.NewGuid().ToString(),
-                ["CompanyName"] = companyName,
-                ["Form"] = form,
-                ["FilingDate"] = filingDate.ToShortDateString(),
-                ["Url"] = url,
-                ["Processed"] = false
-            };
-
-            try
-            {
-                // Insert the new entity
-                await _tableClient.AddEntityAsync(newEntity).ConfigureAwait(false);
-                _logger?.LogTrace($"Inserted new entity: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+                await _storageService.TrackDocumentAsync(companyName, form, filingDate, url);
+                _logger?.LogTrace($"Tracked document via storage service: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
             }
-            catch (Exception ex)
+            else
             {
-                _logger?.LogError($"Error inserting entity: {ex.Message}");
+                // Legacy Azure Table Storage fallback
+                // Skip if Azure Table Storage is not available
+                if (_tableClient == null)
+                {
+                    _logger?.LogTrace("No storage service available. Skipping entity insertion.");
+                    return;
+                }
+
+                _logger?.LogTrace($"Checking if exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+
+                // Define the query filter
+                string filter = $"Url eq '{url}'";
+
+                // Execute the query
+                List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
+
+                if (results.Count == 0)
+                {
+                    // Create a new entity
+                    var newEntity = new TableEntity
+                    {
+                        PartitionKey = companyName,
+                        RowKey = Guid.NewGuid().ToString(),
+                        ["CompanyName"] = companyName,
+                        ["Form"] = form,
+                        ["FilingDate"] = filingDate.ToShortDateString(),
+                        ["Url"] = url,
+                        ["Processed"] = false
+                    };
+
+                    // Insert the new entity
+                    await _tableClient.AddEntityAsync(newEntity).ConfigureAwait(false);
+                    _logger?.LogTrace($"Inserted new entity: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+                }
+                else
+                {
+                    _logger?.LogTrace($"Entity already exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+                }
             }
         }
-        else
+        catch (Exception ex)
         {
-            _logger?.LogTrace($"Entity already exists: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
+            _logger?.LogError($"Error tracking document: {ex.Message}");
         }
     }
 
     // Define a method to update the processed item in the table
-    public static async Task UpdateProcessedItem(string url)
+    public static async Task UpdateProcessedItem(string url, bool success = true, string? errorMessage = null)
     {
-        // Define the query filter
-        string filter = $"Url eq '{url}'";
-        // Execute the query
-        List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
-        if (results.Count > 0)
+        try
         {
-            _logger?.LogTrace($"Found entity to update: Url={url}");
-            // Update the "Processed" property of the first entity found
-            var entityToUpdate = results[0];
-            entityToUpdate["Processed"] = true;
-            // Update the entity in the table
-            await _tableClient.UpdateEntityAsync(entityToUpdate, Azure.ETag.All).ConfigureAwait(false);
-            _logger?.LogTrace($"Updated entity: Url={url}");
+            // Use new storage service if available, otherwise fall back to old Azure Table Storage
+            if (_storageService != null)
+            {
+                await _storageService.MarkProcessedAsync(url, success, errorMessage);
+                _logger?.LogTrace($"Marked document as processed via storage service: Url={url}, Success={success}");
+            }
+            else
+            {
+                // Legacy Azure Table Storage fallback
+                // Skip if Azure Table Storage is not available
+                if (_tableClient == null)
+                {
+                    _logger?.LogTrace("No storage service available. Skipping processed item update.");
+                    return;
+                }
+
+                // Define the query filter
+                string filter = $"Url eq '{url}'";
+                // Execute the query
+                List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
+                if (results.Count > 0)
+                {
+                    _logger?.LogTrace($"Found entity to update: Url={url}");
+                    // Update the "Processed" property of the first entity found
+                    var entityToUpdate = results[0];
+                    entityToUpdate["Processed"] = true;
+                    // Update the entity in the table
+                    await _tableClient.UpdateEntityAsync(entityToUpdate, Azure.ETag.All).ConfigureAwait(false);
+                    _logger?.LogTrace($"Updated entity: Url={url}");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError($"Error updating processed item: {ex.Message}");
         }
     }
 
     // Define a method to query unprocessed data from the table
     public static async Task<List<TableEntity>> QueryUnprocessedData()
     {
-        // Define the query filter
-        string filter = $"Processed eq false";
+        try
+        {
+            // Use new storage service if available
+            if (_storageService != null)
+            {
+                var unprocessedDocuments = await _storageService.GetUnprocessedAsync();
+                _logger?.LogTrace($"Found {unprocessedDocuments.Count} unprocessed documents via storage service");
+                
+                // Convert to TableEntity format for compatibility with existing code
+                return unprocessedDocuments.Select(doc => new TableEntity
+                {
+                    PartitionKey = doc.CompanyName,
+                    RowKey = doc.Id,
+                    ["CompanyName"] = doc.CompanyName,
+                    ["Form"] = doc.Form,
+                    ["FilingDate"] = doc.FilingDate.ToString(),
+                    ["Url"] = doc.Url,
+                    ["Processed"] = doc.Processed
+                }).ToList();
+            }
+            else
+            {
+                // Legacy Azure Table Storage fallback
+                if (_tableClient == null)
+                {
+                    _logger?.LogTrace("No storage service available. Returning empty list.");
+                    return new List<TableEntity>();
+                }
 
-        // Execute the query
-        List<TableEntity> results = _tableClient.Query<TableEntity>(filter).ToList();
-        return results;
+                // Define the query filter
+                string filter = "Processed eq false";
+                // Execute the query
+                var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
+                _logger?.LogTrace($"Found {results.Count} unprocessed documents via Azure Table Storage");
+                return results;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError($"Error querying unprocessed data: {ex.Message}");
+            return new List<TableEntity>();
+        }
     }
 
     // Define a method to fetch data with exponential backoff
@@ -434,9 +673,68 @@ public static class EdgarService
         return "FAILED";
     }
 
+    // Define a method to fetch binary data (for PDFs) with exponential backoff
+    private static async Task<byte[]?> FetchBytesWithExponentialBackoff(string url)
+    {
+        int maxRetries = 5;
+        int delay = 5000; // Initial delay in milliseconds
+
+        for (int retry = 0; retry <= maxRetries; retry++)
+        {
+            try
+            {
+                var response = await _client.GetAsync(url).ConfigureAwait(false);
+                if (response.IsSuccessStatusCode)
+                {
+                    return await response.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                }
+                else if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    if (response.Headers.TryGetValues("Retry-After", out var values))
+                    {
+                        string retryAfter = values.First();
+                        _logger?.LogTrace($"Rate limit exceeded. Retrying after {retryAfter} seconds.");
+                        int retryAfterSeconds = int.Parse(retryAfter);
+                        await Task.Delay(retryAfterSeconds * 1000);
+                    }
+                    else
+                    {
+                        _logger?.LogWarning($"HTTP 429 Too Many Requests. Retrying in {delay}ms...");
+                        await Task.Delay(delay);
+                        delay *= 2; // Exponential backoff
+                    }
+                }
+                else
+                {
+                    response.EnsureSuccessStatusCode();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError($"Error fetching binary data from URL {url}: {ex.Message}");
+                if (retry == maxRetries)
+                {
+                    _logger?.LogTrace($"Max retries reached for URL {url}. Giving up.");
+                }
+                await Task.Delay(delay).ConfigureAwait(false);
+                delay *= 2; // Exponential backoff
+            }
+        }
+
+        return null;
+    }
+
     // Define a method to initialize the logger
     public static void InitializeLogger(ILogger logger)
     {
         _logger = logger;
+    }
+
+    // Initialize the storage service for document tracking
+    public static async Task InitializeStorageServiceAsync(ICrawlStorageService storageService)
+    {
+        _storageService = storageService;
+        await _storageService.InitializeAsync();
+        _logger?.LogInformation("EdgarService storage service initialized: {StorageType}", _storageService.GetStorageType());
     }
 }

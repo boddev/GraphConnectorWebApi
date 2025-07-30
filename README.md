@@ -4,6 +4,8 @@
 
 The SEC Edgar Graph Connector Web API is a comprehensive .NET 8 web application that creates a Microsoft Graph connector to extract, process, and index SEC (Securities and Exchange Commission) filing documents into Microsoft 365 search and Copilot experiences. This solution enables organizations to make SEC filings (10-K, 10-Q, and 8-K forms) searchable through Microsoft Search and accessible via Microsoft Copilot.
 
+**🆕 NEW: React Frontend** - This solution now includes a modern React-based frontend that eliminates Azure dependencies and provides an intuitive interface for selecting companies and managing crawl operations.
+
 ## What This Solution Does
 
 This Graph Connector:
@@ -17,6 +19,48 @@ This Graph Connector:
 - **10-K Reports**: Annual financial overviews providing comprehensive company performance data
 - **10-Q Reports**: Quarterly financial snapshots with interim financial statements
 - **8-K Forms**: Current reports notifying investors of significant company events
+
+## Solution Components
+
+### Backend API (.NET 8)
+- RESTful API with Microsoft Graph integration
+- Background processing queue for long-running operations
+- Comprehensive logging with Application Insights
+- CORS-enabled for frontend communication
+
+### Frontend (React)
+- **Company Selection Interface**: Search and select from 10,000+ SEC-registered companies
+- **Real-time Filtering**: Filter by ticker symbol or company name
+- **Bulk Operations**: Select all or individual companies for crawling
+- **Crawl Management**: Trigger and monitor background crawl operations
+- **Zero Azure Dependencies**: Uses in-memory storage instead of Azure Table Storage
+
+## Quick Start
+
+### Prerequisites
+- .NET 8 SDK
+- Node.js 16+ and npm
+- Microsoft 365 tenant with admin access
+- Azure subscription (for OpenAI services)
+
+### Running the Application
+
+1. **Start the Backend**:
+   ```bash
+   dotnet run --project ApiGraphActivator
+   ```
+
+2. **Start the Frontend**:
+   ```bash
+   cd frontend
+   npm install
+   npm start
+   ```
+
+3. **Access the Application**:
+   - Frontend: http://localhost:3000
+   - Backend API: https://localhost:7034
+   - Swagger UI: https://localhost:7034/swagger
 
 ## Solution Architecture
 
