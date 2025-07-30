@@ -66,6 +66,17 @@ builder.Services.AddScoped<CompanySearchTool>();
 builder.Services.AddScoped<FormFilterTool>();
 builder.Services.AddScoped<ContentSearchTool>();
 
+// Register new content processing MCP tools
+builder.Services.AddScoped<DocumentSummarizationTool>();
+builder.Services.AddScoped<KeyInformationExtractionTool>();
+builder.Services.AddScoped<FinancialDataExtractionTool>();
+builder.Services.AddScoped<CrossDocumentRelationshipTool>();
+builder.Services.AddScoped<PdfProcessingTool>();
+
+// Register OpenAI service and HttpClient for content processing tools
+builder.Services.AddScoped<OpenAIService>();
+builder.Services.AddHttpClient();
+
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
@@ -661,8 +672,107 @@ app.MapPost("/mcp/tools/content-search", async (ContentSearchParameters paramete
 .WithSummary("MCP Tool: Search document content")
 .WithDescription("Perform full-text search within SEC filing document content with highlighting and relevance scoring");
 
+// New Content Processing MCP Tool Endpoints
+app.MapPost("/mcp/tools/summarize-document", async (DocumentSummarizationParameters parameters, DocumentSummarizationTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing document summarization tool: {Message}", ex.Message);
+        return Results.Problem($"Document summarization failed: {ex.Message}");
+    }
+})
+.WithName("McpDocumentSummarization")
+.WithOpenApi()
+.WithSummary("MCP Tool: Summarize documents")
+.WithDescription("Generate comprehensive AI-powered summaries of documents with customizable length and focus areas");
+
+app.MapPost("/mcp/tools/extract-key-information", async (KeyInformationExtractionParameters parameters, KeyInformationExtractionTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing key information extraction tool: {Message}", ex.Message);
+        return Results.Problem($"Key information extraction failed: {ex.Message}");
+    }
+})
+.WithName("McpKeyInformationExtraction")
+.WithOpenApi()
+.WithSummary("MCP Tool: Extract key information")
+.WithDescription("Extract structured key information from documents including company details, financial data, legal information, and risk factors");
+
+app.MapPost("/mcp/tools/extract-financial-data", async (FinancialDataExtractionParameters parameters, FinancialDataExtractionTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing financial data extraction tool: {Message}", ex.Message);
+        return Results.Problem($"Financial data extraction failed: {ex.Message}");
+    }
+})
+.WithName("McpFinancialDataExtraction")
+.WithOpenApi()
+.WithSummary("MCP Tool: Extract financial data")
+.WithDescription("Extract detailed financial data from documents including financial statements, metrics, ratios, and trends analysis");
+
+app.MapPost("/mcp/tools/analyze-cross-document-relationships", async (CrossDocumentRelationshipParameters parameters, CrossDocumentRelationshipTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing cross-document relationship analysis tool: {Message}", ex.Message);
+        return Results.Problem($"Cross-document relationship analysis failed: {ex.Message}");
+    }
+})
+.WithName("McpCrossDocumentRelationshipAnalysis")
+.WithOpenApi()
+.WithSummary("MCP Tool: Analyze cross-document relationships")
+.WithDescription("Analyze relationships between multiple documents including timeline analysis, consistency checking, and evolution tracking");
+
+app.MapPost("/mcp/tools/process-pdf", async (PdfProcessingParameters parameters, PdfProcessingTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing PDF processing tool: {Message}", ex.Message);
+        return Results.Problem($"PDF processing failed: {ex.Message}");
+    }
+})
+.WithName("McpPdfProcessing")
+.WithOpenApi()
+.WithSummary("MCP Tool: Process PDF documents")
+.WithDescription("Extract text content from PDF documents with options for page limits, text cleaning, and document analysis");
+
 // MCP Tools Discovery Endpoint
-app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool, ContentSearchTool contentTool) =>
+app.MapGet("/mcp/tools", (
+    CompanySearchTool companyTool, 
+    FormFilterTool formTool, 
+    ContentSearchTool contentTool,
+    DocumentSummarizationTool summarizationTool,
+    KeyInformationExtractionTool keyInfoTool,
+    FinancialDataExtractionTool financialTool,
+    CrossDocumentRelationshipTool relationshipTool,
+    PdfProcessingTool pdfTool) =>
 {
     var tools = new[]
     {
@@ -686,6 +796,41 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
             description = contentTool.Description,
             inputSchema = contentTool.InputSchema,
             endpoint = "/mcp/tools/content-search"
+        },
+        new
+        {
+            name = summarizationTool.Name,
+            description = summarizationTool.Description,
+            inputSchema = summarizationTool.InputSchema,
+            endpoint = "/mcp/tools/summarize-document"
+        },
+        new
+        {
+            name = keyInfoTool.Name,
+            description = keyInfoTool.Description,
+            inputSchema = keyInfoTool.InputSchema,
+            endpoint = "/mcp/tools/extract-key-information"
+        },
+        new
+        {
+            name = financialTool.Name,
+            description = financialTool.Description,
+            inputSchema = financialTool.InputSchema,
+            endpoint = "/mcp/tools/extract-financial-data"
+        },
+        new
+        {
+            name = relationshipTool.Name,
+            description = relationshipTool.Description,
+            inputSchema = relationshipTool.InputSchema,
+            endpoint = "/mcp/tools/analyze-cross-document-relationships"
+        },
+        new
+        {
+            name = pdfTool.Name,
+            description = pdfTool.Description,
+            inputSchema = pdfTool.InputSchema,
+            endpoint = "/mcp/tools/process-pdf"
         }
     };
 
