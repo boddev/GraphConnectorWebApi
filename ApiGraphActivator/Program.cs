@@ -53,6 +53,10 @@ builder.Services.AddSingleton<BackgroundTaskQueue>(sp => new BackgroundTaskQueue
 builder.Services.AddHostedService<QueuedHostedService>();
 builder.Services.AddHostedService<SchedulerService>();
 
+// Register MCP services
+builder.Services.AddSingleton<McpProtocolHandler>();
+builder.Services.AddSingleton<McpWebSocketService>();
+
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
@@ -69,6 +73,9 @@ app.UseHttpsRedirection();
 
 // Use CORS
 app.UseCors("AllowReactApp");
+
+// Add WebSocket support
+app.UseWebSockets();
 
 // Create a factory-based logger that's appropriate for static classes
 var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
@@ -94,6 +101,51 @@ catch (Exception ex)
 
 // Log a test message to verify Application Insights is working
 staticServiceLogger.LogInformation("Application started and Application Insights is configured.");
+
+// MCP WebSocket endpoint
+app.Map("/mcp", async (HttpContext context, McpWebSocketService mcpService) =>
+{
+    if (context.WebSockets.IsWebSocketRequest)
+    {
+        var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+        await mcpService.HandleWebSocketAsync(context, webSocket);
+    }
+    else
+    {
+        context.Response.StatusCode = StatusCodes.Status400BadRequest;
+        await context.Response.WriteAsync("WebSocket connection required for MCP endpoint");
+    }
+})
+.WithName("McpWebSocket")
+.WithOpenApi();
+
+// MCP HTTP endpoint for protocol information
+app.MapGet("/mcp/info", (McpProtocolHandler protocolHandler) =>
+{
+    return Results.Ok(new
+    {
+        protocolVersion = protocolHandler.ServerInfo?.ProtocolVersion,
+        serverInfo = protocolHandler.ServerInfo,
+        capabilities = protocolHandler.ServerCapabilities,
+        websocketEndpoint = "/mcp",
+        description = "Model Context Protocol (MCP) server for SEC Edgar Graph Connector"
+    });
+})
+.WithName("McpInfo")
+.WithOpenApi();
+
+// MCP connection status endpoint
+app.MapGet("/mcp/status", (McpWebSocketService mcpService) =>
+{
+    return Results.Ok(new
+    {
+        activeConnections = mcpService.ActiveConnectionCount,
+        connections = mcpService.GetConnectionInfo(),
+        timestamp = DateTime.UtcNow
+    });
+})
+.WithName("McpStatus")
+.WithOpenApi();
 
 app.MapGet("/", () => "Hello World!")
     .WithName("GetHelloWorld")
