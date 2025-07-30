@@ -402,3 +402,4 @@ ApiGraphActivator/Properties/launchSettingsMine.json
 ApiGraphActivator/appsettings.Development.json
 ApiGraphActivator/appsettings.json
 ApiGraphActivator/ApiGraphActivator.http
+ApiGraphActivator/Properties/launchSettings.json

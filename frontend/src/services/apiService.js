@@ -57,13 +57,17 @@ export const triggerCrawl = async (selectedCompanies) => {
 // Service to trigger recrawl of all previously crawled companies
 export const triggerRecrawlAll = async () => {
   try {
-    console.log('Triggering recrawl for all previously crawled companies');
+    console.log('API Service: Starting triggerRecrawlAll request');
+    console.log('API Service: Making POST request to:', `${API_BASE_URL}/recrawl-all`);
+    
     const response = await axios.post(`${API_BASE_URL}/recrawl-all`);
     
-    console.log('Recrawl response:', response.data);
+    console.log('API Service: Recrawl response received:', response.data);
+    console.log('API Service: Response status:', response.status);
     return response.data;
   } catch (error) {
-    console.error('Error triggering recrawl:', error);
+    console.error('API Service: Error triggering recrawl:', error);
+    console.error('API Service: Error response:', error.response);
     if (error.response?.status === 400) {
       throw new Error('No previously crawled companies found. Please crawl companies first.');
     }

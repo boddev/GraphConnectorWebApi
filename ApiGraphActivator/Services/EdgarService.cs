@@ -130,10 +130,16 @@ public static class EdgarService
         return filingDocuments;
     }
 
+    // Static field to track companies with processed documents in current session
+    private static HashSet<string> _companiesWithProcessedDocuments = new HashSet<string>();
+
     // Define an asynchronous static method to hydrate lookup data for specific companies
     async public static Task<List<EdgarExternalItem>> HydrateLookupDataForCompanies(List<Company> companies)
     {
         _logger?.LogInformation("Processing {CompanyCount} companies", companies.Count);
+        
+        // Clear the tracking set for this session
+        _companiesWithProcessedDocuments.Clear();
         
         // Create a list to store filing documents
         List<EdgarExternalItem> filingDocuments = new List<EdgarExternalItem>();
@@ -159,6 +165,14 @@ public static class EdgarService
                 
                 _logger?.LogTrace($"Processed {companyFilingDocuments?.Count ?? 0} documents for {company.Ticker}");
             }
+            
+            // Update timestamps only for companies that actually had documents processed
+            if (_companiesWithProcessedDocuments.Any())
+            {
+                var processedCompanies = companies.Where(c => _companiesWithProcessedDocuments.Contains(c.Title)).ToList();
+                await ConfigurationService.UpdateCrawledCompanyTimestampsAsync(processedCompanies);
+                _logger?.LogInformation("Updated timestamps for {ProcessedCount} companies that had documents processed", processedCompanies.Count);
+            }
         }
         catch (Exception ex)
         {
@@ -166,7 +180,8 @@ public static class EdgarService
             return filingDocuments;
         }
 
-        _logger?.LogInformation("Completed processing. Total documents: {DocumentCount}", filingDocuments.Count);
+        _logger?.LogInformation("Completed processing. Total documents: {DocumentCount}, Companies with processed documents: {ProcessedCount}", 
+            filingDocuments.Count, _companiesWithProcessedDocuments.Count);
         return filingDocuments;
     }
 
@@ -319,14 +334,34 @@ public static class EdgarService
 
                         HtmlDocument htmlDoc = new HtmlDocument();
                         htmlDoc.LoadHtml(retVal);
+                        
+                        // Extract text content and clean it up
                         string response = htmlDoc.DocumentNode.InnerText;
-                        // Remove lines that start with "gaap:"
-                        // string[] lines = response.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                        // string cleanedResponse = string.Join(Environment.NewLine, 
-                        //     lines.Where(line => !line.TrimStart().StartsWith("gaap:", StringComparison.OrdinalIgnoreCase)));
+                        
+                        // Decode HTML entities (like &amp;, &lt;, &gt;, etc.)
+                        response = System.Net.WebUtility.HtmlDecode(response);
+                        
+                        // Remove XML declarations and processing instructions
+                        response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?xml[^>]*\?>", "", RegexOptions.IgnoreCase);
+                        response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?[^>]*\?>", "", RegexOptions.IgnoreCase);
+                        
+                        // Remove checkbox symbols and other special Unicode characters
+                        response = response.Replace("☐", ""); // Empty checkbox
+                        response = response.Replace("☑", ""); // Checked checkbox
+                        response = response.Replace("☒", ""); // X-marked checkbox
+                        response = response.Replace("✓", ""); // Checkmark
+                        response = response.Replace("✗", ""); // X mark
+                        
+                        // Remove XBRL namespace declarations and technical metadata
+                        response = System.Text.RegularExpressions.Regex.Replace(response, @"iso4217:\w+", "", RegexOptions.IgnoreCase);
+                        response = System.Text.RegularExpressions.Regex.Replace(response, @"xbrli:\w+", "", RegexOptions.IgnoreCase);
+                        response = System.Text.RegularExpressions.Regex.Replace(response, @"\b\d{10}\b", ""); // Remove 10-digit numbers that look like IDs
+                        
+                        // Clean up whitespace and formatting
+                        response = System.Text.RegularExpressions.Regex.Replace(response, @"\s+", " "); // Replace multiple whitespace with single space
+                        response = System.Text.RegularExpressions.Regex.Replace(response, @"[\r\n]+", "\n"); // Normalize line breaks
+                        response = response.Trim(); // Remove leading/trailing whitespace
 
-                        // // Use the cleaned response instead
-                        // response = cleanedResponse;
 
                         // Upload to blob storage if available
                         if (_blobServiceClient != null && !string.IsNullOrEmpty(processedBlobContainerName))
@@ -360,6 +395,9 @@ public static class EdgarService
 
                         EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, response);
                         ContentService.Transform(edgarExternalItem);
+                        
+                        // Track that this company had a document successfully processed
+                        _companiesWithProcessedDocuments.Add(companyName);
                         
                         // Mark document as successfully processed
                         await UpdateProcessedItem(urlField, true, null);

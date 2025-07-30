@@ -229,10 +229,6 @@ app.MapPost("/recrawl-all", async (HttpContext context, BackgroundTaskQueue task
 
         staticServiceLogger.LogInformation("Starting recrawl for {CompanyCount} previously crawled companies", config.Companies.Count);
         
-        // Update the last crawl date
-        config.LastCrawlDate = DateTime.UtcNow;
-        await ConfigurationService.SaveCrawledCompaniesAsync(config.Companies);
-        
         // Queue the background task with previously crawled companies
         await taskQueue.QueueBackgroundWorkItemAsync(async token =>
         {

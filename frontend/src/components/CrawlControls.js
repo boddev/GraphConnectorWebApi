@@ -23,18 +23,27 @@ const CrawlControls = ({ selectedCompanies, onTriggerCrawl, onTriggerRecrawlAll,
   };
 
   const handleRecrawlAllClick = async () => {
+    console.log('Recrawl button clicked');
+    console.log('Crawled history:', crawledHistory);
+    
     if (!crawledHistory?.companies?.length) {
+      console.log('No previously crawled companies found');
       setMessage('No previously crawled companies found. Please crawl companies first.');
       setMessageType('error');
       return;
     }
 
+    console.log(`Found ${crawledHistory.companies.length} previously crawled companies`);
+
     try {
       setMessage('');
+      console.log('Calling onTriggerRecrawlAll()');
       await onTriggerRecrawlAll();
+      console.log('Recrawl completed successfully');
       setMessage(`Recrawl started successfully for ${crawledHistory.companies.length} previously crawled companies. The process is running in the background.`);
       setMessageType('success');
     } catch (error) {
+      console.error('Error during recrawl:', error);
       setMessage(`Failed to start recrawl: ${error.message}`);
       setMessageType('error');
     }

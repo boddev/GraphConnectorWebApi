@@ -62,7 +62,7 @@ const CrawlHistory = ({ crawledHistory }) => {
                 <div className="crawled-company-status">
                   <div>✓ Crawled</div>
                   <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
-                    {formatDate(crawledHistory.lastCrawlDate || crawledHistory.LastCrawlDate)}
+                    {formatDate(company.lastCrawledDate || company.LastCrawledDate)}
                   </div>
                 </div>
               </div>
