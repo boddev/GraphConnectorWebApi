@@ -66,6 +66,17 @@ builder.Services.AddScoped<CompanySearchTool>();
 builder.Services.AddScoped<FormFilterTool>();
 builder.Services.AddScoped<ContentSearchTool>();
 
+
+// Register M365 Copilot Client services
+builder.Services.AddHttpClient();
+builder.Services.AddSingleton<IM365CopilotClient>(serviceProvider =>
+{
+    var logger = serviceProvider.GetRequiredService<ILogger<M365CopilotClient>>();
+    var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
+    var httpClient = httpClientFactory.CreateClient();
+    return new M365CopilotClient(logger, httpClient);
+}
+
 // Register conversation management services
 builder.Services.AddScoped<ConversationService>(serviceProvider =>
 {
@@ -113,6 +124,26 @@ try
 catch (Exception ex)
 {
     staticServiceLogger.LogWarning("Failed to initialize storage service: {Message}", ex.Message);
+}
+
+// Initialize M365 Copilot Client
+try
+{
+    using var scope = app.Services.CreateScope();
+    var copilotClient = scope.ServiceProvider.GetRequiredService<IM365CopilotClient>();
+    var initialized = await copilotClient.InitializeAsync();
+    if (initialized)
+    {
+        staticServiceLogger.LogInformation("M365 Copilot Client initialized successfully");
+    }
+    else
+    {
+        staticServiceLogger.LogWarning("M365 Copilot Client initialization failed");
+    }
+}
+catch (Exception ex)
+{
+    staticServiceLogger.LogWarning("Failed to initialize M365 Copilot Client: {Message}", ex.Message);
 }
 
 // Log a test message to verify Application Insights is working
@@ -877,6 +908,158 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
 .WithOpenApi()
 .WithSummary("MCP Tools Discovery")
 .WithDescription("List all available MCP document search tools with their schemas and endpoints");
+
+// M365 Copilot Endpoints
+app.MapPost("/copilot/conversations", async (CreateConversationRequest request, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var conversation = await copilotClient.CreateConversationAsync(request);
+        return Results.Ok(conversation);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error creating Copilot conversation: {Message}", ex.Message);
+        return Results.Problem($"Failed to create conversation: {ex.Message}");
+    }
+})
+.WithName("CreateCopilotConversation")
+.WithOpenApi()
+.WithSummary("Create a new M365 Copilot conversation")
+.WithDescription("Create a new conversation for M365 Copilot chat integration");
+
+app.MapGet("/copilot/conversations/{conversationId}", async (string conversationId, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var conversation = await copilotClient.GetConversationAsync(conversationId);
+        if (conversation == null)
+        {
+            return Results.NotFound($"Conversation {conversationId} not found");
+        }
+        return Results.Ok(conversation);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting Copilot conversation {ConversationId}: {Message}", conversationId, ex.Message);
+        return Results.Problem($"Failed to get conversation: {ex.Message}");
+    }
+})
+.WithName("GetCopilotConversation")
+.WithOpenApi()
+.WithSummary("Get a M365 Copilot conversation by ID")
+.WithDescription("Retrieve an existing conversation with all messages");
+
+app.MapGet("/copilot/conversations", async (string tenantId, int limit, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var conversations = await copilotClient.GetConversationsAsync(tenantId, limit);
+        return Results.Ok(conversations);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting Copilot conversations for tenant {TenantId}: {Message}", tenantId, ex.Message);
+        return Results.Problem($"Failed to get conversations: {ex.Message}");
+    }
+})
+.WithName("GetCopilotConversations")
+.WithOpenApi()
+.WithSummary("Get M365 Copilot conversations for a tenant")
+.WithDescription("Retrieve all conversations for a specific tenant with optional limit");
+
+app.MapPost("/copilot/chat", async (CopilotChatRequest request, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        if (request.Stream)
+        {
+            // Handle streaming response
+            return Results.Stream(async stream =>
+            {
+                var writer = new StreamWriter(stream, leaveOpen: true);
+                try
+                {
+                    await foreach (var chunk in copilotClient.SendMessageStreamAsync(request))
+                    {
+                        var json = JsonSerializer.Serialize(chunk);
+                        await writer.WriteLineAsync($"data: {json}");
+                        await writer.FlushAsync();
+                        
+                        if (chunk.IsComplete)
+                        {
+                            await writer.WriteLineAsync("data: [DONE]");
+                            break;
+                        }
+                    }
+                }
+                finally
+                {
+                    await writer.DisposeAsync();
+                }
+            }, "text/plain");
+        }
+        else
+        {
+            // Handle synchronous response
+            var response = await copilotClient.SendMessageAsync(request);
+            return Results.Ok(response);
+        }
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error sending Copilot message: {Message}", ex.Message);
+        return Results.Problem($"Failed to send message: {ex.Message}");
+    }
+})
+.WithName("SendCopilotMessage")
+.WithOpenApi()
+.WithSummary("Send a message to M365 Copilot")
+.WithDescription("Send a message to a conversation and get either synchronous or streaming response");
+
+app.MapDelete("/copilot/conversations/{conversationId}", async (string conversationId, IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var deleted = await copilotClient.DeleteConversationAsync(conversationId);
+        if (!deleted)
+        {
+            return Results.NotFound($"Conversation {conversationId} not found");
+        }
+        return Results.Ok(new { message = "Conversation deleted successfully" });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error deleting Copilot conversation {ConversationId}: {Message}", conversationId, ex.Message);
+        return Results.Problem($"Failed to delete conversation: {ex.Message}");
+    }
+})
+.WithName("DeleteCopilotConversation")
+.WithOpenApi()
+.WithSummary("Delete a M365 Copilot conversation")
+.WithDescription("Delete a conversation and all its messages");
+
+app.MapGet("/copilot/health", async (IM365CopilotClient copilotClient) =>
+{
+    try
+    {
+        var isHealthy = await copilotClient.IsHealthyAsync();
+        return Results.Ok(new { 
+            healthy = isHealthy, 
+            timestamp = DateTime.UtcNow,
+            message = isHealthy ? "M365 Copilot Client is healthy" : "M365 Copilot Client is not healthy"
+        });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error checking Copilot health: {Message}", ex.Message);
+        return Results.Problem($"Health check failed: {ex.Message}");
+    }
+})
+.WithName("CopilotHealthCheck")
+.WithOpenApi()
+.WithSummary("Check M365 Copilot Client health")
+.WithDescription("Check if the Copilot client is authenticated and ready to handle requests");
 
 app.Run();
 
