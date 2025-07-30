@@ -697,3 +697,6 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
 .WithDescription("List all available MCP document search tools with their schemas and endpoints");
 
 app.Run();
+
+// Make Program class accessible for testing
+public partial class Program { }
