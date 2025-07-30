@@ -1,0 +1,566 @@
+openapi: 3.0.3
+info:
+  title: MCP Server - SEC Edgar Document Search Tools
+  description: |
+    Model Context Protocol (MCP) server providing comprehensive document search tools for SEC Edgar filings.
+    
+    This API provides structured access to SEC filing documents with advanced filtering, pagination, 
+    and content search capabilities. All tools follow the MCP specification for tool discovery and execution.
+    
+    ## Supported Form Types
+    - `10-K`: Annual reports
+    - `10-Q`: Quarterly reports  
+    - `8-K`: Current reports
+    - `10-K/A`: Amended annual reports
+    - `10-Q/A`: Amended quarterly reports
+    - `8-K/A`: Amended current reports
+    
+    ## Storage Backends
+    - **In-Memory Storage**: For development and testing
+    - **Local File Storage**: For single-node deployments
+    - **Azure Table Storage**: For production cloud deployments
+    
+  version: 1.0.0
+  contact:
+    name: SEC Edgar Graph Connector API
+    url: https://github.com/boddev/GraphConnectorWebApi
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5236/mcp
+    description: Local development server
+  - url: https://localhost:7034/mcp  
+    description: Local development server (HTTPS)
+
+paths:
+  /tools:
+    get:
+      summary: List Available MCP Tools
+      description: Discover all available MCP tools with their schemas and endpoints
+      operationId: listMcpTools
+      responses:
+        '200':
+          description: List of available MCP tools
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/McpToolDefinition'
+
+  /tools/company-search:
+    post:
+      summary: Search Documents by Company
+      description: Search SEC filing documents by company name with optional filtering by form types and date ranges
+      operationId: searchDocumentsByCompany
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanySearchParameters'
+            examples:
+              basic_search:
+                summary: Basic company search
+                value:
+                  companyName: "Apple"
+                  page: 1
+                  pageSize: 10
+              filtered_search:
+                summary: Filtered search with form types and date range
+                value:
+                  companyName: "Apple Inc."
+                  formTypes: ["10-K", "10-Q"]
+                  startDate: "2023-01-01"
+                  endDate: "2024-12-31"
+                  includeContent: false
+                  page: 1
+                  pageSize: 20
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpToolResponsePaginated'
+              examples:
+                success_response:
+                  summary: Successful search response
+                  value:
+                    content:
+                      items:
+                        - id: "apple-10k-2024-03-15"
+                          title: "Apple Inc. 10-K 2024-03-15"
+                          companyName: "Apple Inc."
+                          formType: "10-K"
+                          filingDate: "2024-03-15T00:00:00Z"
+                          url: "https://www.sec.gov/Archives/edgar/data/320193/000032019324000007/aapl-20240315.htm"
+                          contentPreview: "UNITED STATES SECURITIES AND EXCHANGE COMMISSION Washington, D.C. 20549 FORM 10-K ANNUAL REPORT PURSUANT TO SECTION 13 OR 15(d) OF THE SECURITIES EXCHANGE ACT OF 1934..."
+                          relevanceScore: 1.0
+                      totalCount: 25
+                      page: 1
+                      pageSize: 10
+                      totalPages: 3
+                      hasNextPage: true
+                      hasPreviousPage: false
+                    isError: false
+                    errorMessage: null
+                    metadata:
+                      searchType: "company"
+                      searchTerm: "Apple Inc."
+                      executionTime: "2024-01-15T10:30:00Z"
+        '400':
+          description: Bad request - validation errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpToolResponseError'
+
+  /tools/form-filter:
+    post:
+      summary: Filter Documents by Form Type and Date
+      description: Filter SEC filing documents by form type and date range with optional company filtering
+      operationId: filterDocumentsByFormAndDate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FormFilterParameters'
+            examples:
+              form_filter:
+                summary: Filter by form type
+                value:
+                  formTypes: ["10-K"]
+                  startDate: "2023-01-01"
+                  endDate: "2024-12-31"
+                  page: 1
+                  pageSize: 50
+              company_form_filter:
+                summary: Filter by companies and forms
+                value:
+                  formTypes: ["10-K", "10-Q"]
+                  companyNames: ["Apple Inc.", "Microsoft Corporation"]
+                  startDate: "2023-01-01"
+                  includeContent: false
+                  page: 1
+                  pageSize: 20
+      responses:
+        '200':
+          description: Filtered results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpToolResponsePaginated'
+        '400':
+          description: Bad request - validation errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpToolResponseError'
+
+  /tools/content-search:
+    post:
+      summary: Search Document Content
+      description: Perform full-text search within SEC filing document content with relevance scoring and highlighting
+      operationId: searchDocumentContent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContentSearchParameters'
+            examples:
+              content_search:
+                summary: Basic content search
+                value:
+                  searchText: "artificial intelligence"
+                  page: 1
+                  pageSize: 10
+              filtered_content_search:
+                summary: Content search with filters
+                value:
+                  searchText: "revenue growth"
+                  companyNames: ["Apple Inc."]
+                  formTypes: ["10-K"]
+                  exactMatch: false
+                  caseSensitive: false
+                  startDate: "2023-01-01"
+                  page: 1
+                  pageSize: 10
+      responses:
+        '200':
+          description: Content search results with highlighting
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpToolResponsePaginated'
+              examples:
+                content_search_response:
+                  summary: Content search with highlights
+                  value:
+                    content:
+                      items:
+                        - id: "apple-10k-2024-03-15"
+                          title: "Apple Inc. 10-K 2024-03-15"
+                          companyName: "Apple Inc."
+                          formType: "10-K"
+                          filingDate: "2024-03-15T00:00:00Z"
+                          url: "https://www.sec.gov/Archives/edgar/data/320193/000032019324000007/aapl-20240315.htm"
+                          contentPreview: "Our revenue from artificial intelligence initiatives has grown significantly..."
+                          relevanceScore: 0.85
+                          highlights: ["artificial intelligence", "AI", "machine learning"]
+                      totalCount: 5
+                      page: 1
+                      pageSize: 10
+                      totalPages: 1
+                      hasNextPage: false
+                      hasPreviousPage: false
+                    isError: false
+                    errorMessage: null
+                    metadata:
+                      searchType: "content"
+                      searchTerm: "artificial intelligence"
+                      executionTime: "2024-01-15T10:35:00Z"
+        '400':
+          description: Bad request - validation errors
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/McpToolResponseError'
+
+components:
+  schemas:
+    McpToolDefinition:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Unique tool identifier
+          example: "search_documents_by_company"
+        description:
+          type: string
+          description: Human-readable tool description
+        inputSchema:
+          type: object
+          description: JSON Schema for tool input parameters
+        endpoint:
+          type: string
+          description: HTTP endpoint for tool execution
+          example: "/mcp/tools/company-search"
+      required:
+        - name
+        - description
+        - inputSchema
+        - endpoint
+
+    CompanySearchParameters:
+      type: object
+      properties:
+        companyName:
+          type: string
+          description: Name of the company to search for (supports partial matching)
+          example: "Apple Inc."
+        formTypes:
+          type: array
+          items:
+            type: string
+            enum: ["10-K", "10-Q", "8-K", "10-K/A", "10-Q/A", "8-K/A"]
+          description: Optional list of form types to filter by
+          example: ["10-K", "10-Q"]
+        startDate:
+          type: string
+          format: date
+          description: Optional start date for filing date range (YYYY-MM-DD)
+          example: "2023-01-01"
+        endDate:
+          type: string
+          format: date
+          description: Optional end date for filing date range (YYYY-MM-DD)
+          example: "2024-12-31"
+        includeContent:
+          type: boolean
+          default: false
+          description: Whether to include document content in results
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+          description: Page number for pagination
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 50
+          description: Number of results per page
+      required:
+        - companyName
+
+    FormFilterParameters:
+      type: object
+      properties:
+        formTypes:
+          type: array
+          items:
+            type: string
+            enum: ["10-K", "10-Q", "8-K", "10-K/A", "10-Q/A", "8-K/A"]
+          description: Optional list of form types to filter by
+        companyNames:
+          type: array
+          items:
+            type: string
+          description: Optional list of company names to filter by
+        startDate:
+          type: string
+          format: date
+          description: Optional start date for filing date range (YYYY-MM-DD)
+        endDate:
+          type: string
+          format: date
+          description: Optional end date for filing date range (YYYY-MM-DD)
+        includeContent:
+          type: boolean
+          default: false
+          description: Whether to include document content in results
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+          description: Page number for pagination
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 50
+          description: Number of results per page
+
+    ContentSearchParameters:
+      type: object
+      properties:
+        searchText:
+          type: string
+          description: Text to search for within document content
+          example: "artificial intelligence"
+        companyNames:
+          type: array
+          items:
+            type: string
+          description: Optional list of company names to limit search scope
+        formTypes:
+          type: array
+          items:
+            type: string
+            enum: ["10-K", "10-Q", "8-K", "10-K/A", "10-Q/A", "8-K/A"]
+          description: Optional list of form types to limit search scope
+        startDate:
+          type: string
+          format: date
+          description: Optional start date for filing date range (YYYY-MM-DD)
+        endDate:
+          type: string
+          format: date
+          description: Optional end date for filing date range (YYYY-MM-DD)
+        exactMatch:
+          type: boolean
+          default: false
+          description: Whether to search for exact phrase match
+        caseSensitive:
+          type: boolean
+          default: false
+          description: Whether search should be case sensitive
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+          description: Page number for pagination
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+          description: Number of results per page (max 100 for content search)
+      required:
+        - searchText
+
+    DocumentSearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique document identifier
+          example: "apple-10k-2024-03-15"
+        title:
+          type: string
+          description: Document title
+          example: "Apple Inc. 10-K 2024-03-15"
+        companyName:
+          type: string
+          description: Company name
+          example: "Apple Inc."
+        formType:
+          type: string
+          description: SEC form type
+          example: "10-K"
+        filingDate:
+          type: string
+          format: date-time
+          description: Document filing date
+          example: "2024-03-15T00:00:00Z"
+        url:
+          type: string
+          format: uri
+          description: Link to original SEC filing
+          example: "https://www.sec.gov/Archives/edgar/data/320193/000032019324000007/aapl-20240315.htm"
+        contentPreview:
+          type: string
+          description: First 300 characters of content
+          nullable: true
+        fullContent:
+          type: string
+          description: Complete document content (if requested)
+          nullable: true
+        relevanceScore:
+          type: number
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Relevance score for search results
+          example: 0.85
+        highlights:
+          type: array
+          items:
+            type: string
+          description: Highlighted search terms
+          nullable: true
+      required:
+        - id
+        - title
+        - companyName
+        - formType
+        - filingDate
+        - url
+        - relevanceScore
+
+    PaginatedResult:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DocumentSearchResult'
+          description: Array of search results
+        totalCount:
+          type: integer
+          description: Total number of matching documents
+          example: 25
+        page:
+          type: integer
+          description: Current page number
+          example: 1
+        pageSize:
+          type: integer
+          description: Number of results per page
+          example: 10
+        totalPages:
+          type: integer
+          description: Total number of pages
+          example: 3
+        hasNextPage:
+          type: boolean
+          description: Whether there is a next page
+          example: true
+        hasPreviousPage:
+          type: boolean
+          description: Whether there is a previous page
+          example: false
+      required:
+        - items
+        - totalCount
+        - page
+        - pageSize
+        - totalPages
+        - hasNextPage
+        - hasPreviousPage
+
+    McpToolResponsePaginated:
+      type: object
+      properties:
+        content:
+          $ref: '#/components/schemas/PaginatedResult'
+          nullable: true
+        isError:
+          type: boolean
+          description: Whether the operation resulted in an error
+          example: false
+        errorMessage:
+          type: string
+          description: Error message if isError is true
+          nullable: true
+        metadata:
+          type: object
+          description: Additional metadata about the operation
+          properties:
+            searchType:
+              type: string
+              example: "company"
+            searchTerm:
+              type: string
+              example: "Apple Inc."
+            executionTime:
+              type: string
+              format: date-time
+              example: "2024-01-15T10:30:00Z"
+          additionalProperties: true
+          nullable: true
+      required:
+        - isError
+
+    McpToolResponseError:
+      type: object
+      properties:
+        content:
+          nullable: true
+        isError:
+          type: boolean
+          example: true
+        errorMessage:
+          type: string
+          description: Detailed error message
+          example: "Invalid form types: INVALID-FORM. Valid types: 10-K, 10-Q, 8-K, 10-K/A, 10-Q/A, 8-K/A"
+        metadata:
+          nullable: true
+      required:
+        - isError
+        - errorMessage
+
+  examples:
+    CompanySearchExample:
+      summary: Search Apple filings
+      value:
+        companyName: "Apple Inc."
+        formTypes: ["10-K", "10-Q"]
+        startDate: "2023-01-01"
+        endDate: "2024-12-31"
+        page: 1
+        pageSize: 10
+
+    FormFilterExample:
+      summary: Filter 10-K forms for tech companies
+      value:
+        formTypes: ["10-K"]
+        companyNames: ["Apple Inc.", "Microsoft Corporation", "Google Inc."]
+        startDate: "2023-01-01"
+        page: 1
+        pageSize: 20
+
+    ContentSearchExample:
+      summary: Search for AI-related content
+      value:
+        searchText: "artificial intelligence"
+        formTypes: ["10-K"]
+        exactMatch: false
+        caseSensitive: false
+        page: 1
+        pageSize: 10

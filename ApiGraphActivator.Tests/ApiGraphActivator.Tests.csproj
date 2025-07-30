@@ -1,3 +1,4 @@
+
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
@@ -34,5 +35,6 @@
   <ItemGroup>
     <ProjectReference Include="..\ApiGraphActivator\ApiGraphActivator.csproj" />
   </ItemGroup>
+
 
 </Project>

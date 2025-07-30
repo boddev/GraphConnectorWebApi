@@ -9,6 +9,7 @@ public class StorageConfigurationService
     private readonly string _configPath;
     private readonly JsonSerializerOptions _jsonOptions;
     private StorageConfiguration? _currentConfig;
+    private static InMemoryStorageService? _singletonInMemoryService;
 
     public StorageConfigurationService(ILogger<StorageConfigurationService> logger)
     {
@@ -91,6 +92,8 @@ public class StorageConfigurationService
             "local" => new LocalFileStorageService(
                 LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<LocalFileStorageService>(),
                 config),
+            "memory" => _singletonInMemoryService ??= new InMemoryStorageService(
+                LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<InMemoryStorageService>()),
             _ => new LocalFileStorageService(
                 LoggerFactory.Create(builder => builder.AddConsole()).CreateLogger<LocalFileStorageService>(),
                 config)
