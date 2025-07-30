@@ -1,12 +1,14 @@
-# MCP Document Search Tools
+# MCP Document Search and Retrieval Tools
 
-This document describes the MCP (Model Context Protocol) document search tools implemented for the SEC Edgar Graph Connector Web API.
+This document describes the MCP (Model Context Protocol) document search and retrieval tools implemented for the SEC Edgar Graph Connector Web API.
 
 ## Overview
 
-The MCP Document Search Tools provide structured interfaces for searching SEC filing documents with advanced filtering, pagination, and content search capabilities. These tools wrap the existing EdgarService functionality in standardized MCP tool definitions.
+The MCP Document Tools provide comprehensive interfaces for both searching and retrieving SEC filing documents. The tools include advanced filtering, pagination, content search capabilities, and direct document retrieval by URL or filing ID.
 
 ## Available Tools
+
+### Search Tools
 
 ### 1. Company Search Tool (`search_documents_by_company`)
 
@@ -88,6 +90,90 @@ Perform full-text search within SEC filing document content with relevance scori
   "caseSensitive": false,
   "page": 1,
   "pageSize": 10
+}
+```
+
+### Document Retrieval Tools
+
+### 4. Document Retrieval by URL Tool (`retrieve_document_by_url`)
+
+**Endpoint**: `POST /mcp/tools/retrieve-document`
+
+Retrieve a specific SEC filing document by URL and extract its content and metadata.
+
+**Parameters**:
+- `url` (required): SEC document URL to retrieve (e.g., "https://www.sec.gov/Archives/edgar/...")
+- `includeFullContent` (optional): Whether to include full document content in response (default: true)
+- `maxContentLength` (optional): Maximum content length to return (default: 100000, max: 500000)
+
+**Example**:
+```json
+{
+  "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000010/aapl-20231230.htm",
+  "includeFullContent": true,
+  "maxContentLength": 150000
+}
+```
+
+**Response Format**:
+```json
+{
+  "content": {
+    "documentId": "generated-hash-id",
+    "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000010/aapl-20231230.htm",
+    "contentType": "HTML",
+    "companyName": "Apple Inc.",
+    "formType": "10-K",
+    "filingDate": "2023-12-30T00:00:00Z",
+    "contentPreview": "First 300 characters...",
+    "fullContent": "Complete document text content...",
+    "contentLength": 125000,
+    "retrievedAt": "2024-01-15T10:30:00Z"
+  },
+  "isError": false,
+  "errorMessage": null,
+  "metadata": {
+    "retrievalType": "url",
+    "contentType": "HTML",
+    "originalContentLength": 125000,
+    "includedFullContent": true,
+    "executionTime": "2024-01-15T10:30:00.123Z"
+  }
+}
+```
+
+### 5. Document Retrieval by Filing ID Tool (`retrieve_document_by_id`)
+
+**Endpoint**: `POST /mcp/tools/retrieve-document-by-id`
+
+Retrieve a specific SEC filing document by filing ID. First searches stored documents, then retrieves content.
+
+**Parameters**:
+- `filingId` (required): Document filing ID or document identifier to retrieve
+- `includeFullContent` (optional): Whether to include full document content in response (default: true)
+- `maxContentLength` (optional): Maximum content length to return (default: 100000, max: 500000)
+
+**Example**:
+```json
+{
+  "filingId": "0000320193-24-000010",
+  "includeFullContent": true,
+  "maxContentLength": 100000
+}
+```
+
+**Response Format**:
+Same as Document Retrieval by URL tool, with additional metadata indicating whether the document was found in storage:
+
+```json
+{
+  "metadata": {
+    "retrievalType": "filingId",
+    "originalFilingId": "0000320193-24-000010",
+    "foundInStorage": true,
+    "contentType": "HTML",
+    "executionTime": "2024-01-15T10:30:00.123Z"
+  }
 }
 ```
 
@@ -189,8 +275,19 @@ The search tools work with all supported storage backends:
 
 These MCP tools can be integrated with:
 - AI agents and chatbots requiring SEC filing data
-- Financial analysis applications
-- Compliance monitoring systems
-- Research platforms requiring structured document search
+- Financial analysis applications requiring both document search and content extraction
+- Compliance monitoring systems needing specific document retrieval
+- Research platforms requiring structured document search and full document access
+- Document processing workflows requiring SEC filing content analysis
 
 The standardized MCP format ensures compatibility with various AI and automation frameworks that support the Model Context Protocol.
+
+## Document Retrieval Features
+
+The document retrieval tools provide:
+- **Direct URL Access**: Retrieve any SEC document by its direct URL
+- **Filing ID Lookup**: Find and retrieve documents using SEC accession numbers
+- **Content Processing**: Extract and clean text from both PDF and HTML documents
+- **Metadata Extraction**: Automatically extract company names, form types, and filing dates
+- **Content Control**: Configurable content length limits and preview options
+- **Error Handling**: Comprehensive validation and error reporting
