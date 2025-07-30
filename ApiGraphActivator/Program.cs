@@ -1,6 +1,7 @@
 using ApiGraphActivator.Services;
 using Microsoft.Extensions.Logging.ApplicationInsights;
 using ApiGraphActivator;
+using ApiGraphActivator.Models.Mcp;
 using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -53,6 +54,10 @@ builder.Services.AddSingleton<BackgroundTaskQueue>(sp => new BackgroundTaskQueue
 builder.Services.AddHostedService<QueuedHostedService>();
 builder.Services.AddHostedService<SchedulerService>();
 
+// Register MCP Tool Registry services
+builder.Services.AddSingleton<McpToolRegistryService>();
+builder.Services.AddSingleton<McpToolsService>();
+
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
@@ -94,6 +99,11 @@ catch (Exception ex)
 
 // Log a test message to verify Application Insights is working
 staticServiceLogger.LogInformation("Application started and Application Insights is configured.");
+
+// Initialize MCP Tool Registry
+var mcpToolRegistry = app.Services.GetRequiredService<McpToolRegistryService>();
+mcpToolRegistry.DiscoverTools();
+staticServiceLogger.LogInformation("MCP Tool Registry initialized and tools discovered.");
 
 app.MapGet("/", () => "Hello World!")
     .WithName("GetHelloWorld")
@@ -593,4 +603,80 @@ app.MapPost("/scheduler-config", async (HttpContext context) =>
 .WithName("SaveSchedulerConfig")
 .WithOpenApi();
 
+// MCP Tool Registry Endpoints
+app.MapGet("/tools/list", (McpToolRegistryService mcpToolRegistry) =>
+{
+    try
+    {
+        staticServiceLogger.LogInformation("Received MCP tools list request");
+        var toolsList = mcpToolRegistry.GetMcpToolsList();
+        staticServiceLogger.LogInformation("Returning {ToolCount} MCP tools", toolsList.Tools.Count);
+        return Results.Ok(toolsList);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting MCP tools list: {Error}", ex.Message);
+        return Results.Problem($"Error getting tools list: {ex.Message}");
+    }
+})
+.WithName("GetMcpToolsList")
+.WithOpenApi()
+.WithTags("MCP Tools");
+
+app.MapGet("/tools/registry/status", (McpToolRegistryService mcpToolRegistry) =>
+{
+    try
+    {
+        var allTools = mcpToolRegistry.GetAllTools();
+        var toolsByCategory = allTools.Values.GroupBy(t => t.Category ?? "General")
+                                           .ToDictionary(g => g.Key, g => g.Count());
+        
+        return Results.Ok(new
+        {
+            totalTools = allTools.Count,
+            enabledTools = allTools.Values.Count(t => t.Enabled),
+            toolsByCategory,
+            registeredAt = DateTime.UtcNow
+        });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting MCP registry status: {Error}", ex.Message);
+        return Results.Problem($"Error getting registry status: {ex.Message}");
+    }
+})
+.WithName("GetMcpRegistryStatus")
+.WithOpenApi()
+.WithTags("MCP Tools");
+
+app.MapPost("/tools/validate", async (HttpContext context, McpToolRegistryService mcpToolRegistry) =>
+{
+    try
+    {
+        var request = await context.Request.ReadFromJsonAsync<ToolValidationRequest>();
+        if (request?.ToolName == null)
+        {
+            return Results.BadRequest("Tool name is required");
+        }
+
+        var validationResult = mcpToolRegistry.ValidateParameters(request.ToolName, request.Parameters ?? new());
+        return Results.Ok(validationResult);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error validating tool parameters: {Error}", ex.Message);
+        return Results.Problem($"Error validating parameters: {ex.Message}");
+    }
+})
+.WithName("ValidateToolParameters")
+.WithOpenApi()
+.WithTags("MCP Tools");
+
 app.Run();
+
+// Helper class for tool validation request
+public class ToolValidationRequest
+{
+    public string? ToolName { get; set; }
+    public Dictionary<string, object>? Parameters { get; set; }
+}
