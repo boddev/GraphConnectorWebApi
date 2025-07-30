@@ -18,6 +18,12 @@ public class OpenAIService
 
     public OpenAIService()
     {
+        _apiKey = Environment.GetEnvironmentVariable("OpenAIKey");
+        if (string.IsNullOrEmpty(_apiKey))
+        {
+            throw new InvalidOperationException("OpenAI API key not configured. Please set the 'OpenAIKey' environment variable.");
+        }
+        
         _azureClient = new AzureOpenAIClient(
             _endpoint,
             new AzureKeyCredential(_apiKey));
