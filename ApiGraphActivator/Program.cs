@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging.ApplicationInsights;
 using ApiGraphActivator;
 using System.Text.Json;
 using ApiGraphActivator.McpTools;
+using ApiGraphActivator.McpResources;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -66,6 +67,8 @@ builder.Services.AddScoped<CompanySearchTool>();
 builder.Services.AddScoped<FormFilterTool>();
 builder.Services.AddScoped<ContentSearchTool>();
 
+// Register MCP resource services
+builder.Services.AddScoped<ApiGraphActivator.McpResources.ResourceService>();
 
 // Register M365 Copilot Client services
 builder.Services.AddHttpClient();
@@ -909,6 +912,164 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
 .WithSummary("MCP Tools Discovery")
 .WithDescription("List all available MCP document search tools with their schemas and endpoints");
 
+
+// MCP Resources Endpoints
+app.MapGet("/mcp/resources/list", async (
+    ApiGraphActivator.McpResources.ResourceService resourceService,
+    string? companyName = null,
+    string? formType = null,
+    DateTime? startDate = null,
+    DateTime? endDate = null,
+    int limit = 100,
+    int offset = 0,
+    string sortBy = "filingDate",
+    string sortOrder = "desc") =>
+{
+    try
+    {
+        var parameters = new ApiGraphActivator.McpResources.ResourceListParameters
+        {
+            CompanyName = companyName,
+            FormType = formType,
+            StartDate = startDate,
+            EndDate = endDate,
+            Limit = Math.Min(limit, 1000),
+            Offset = Math.Max(offset, 0),
+            SortBy = sortBy,
+            SortOrder = sortOrder
+        };
+
+        var result = await resourceService.ListResourcesAsync(parameters);
+        
+        if (result.IsError)
+        {
+            return Results.BadRequest(new { error = result.ErrorMessage });
+        }
+
+        return Results.Ok(result.Content);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error in resources/list endpoint: {Message}", ex.Message);
+        return Results.Problem($"Internal server error: {ex.Message}");
+    }
+})
+.WithName("McpResourcesList")
+.WithOpenApi()
+.WithSummary("MCP Resources List")
+.WithDescription("List available SEC Edgar document resources with optional filtering and pagination");
+
+app.MapGet("/mcp/resources/content/{**resourceUri}", async (
+    string resourceUri,
+    ApiGraphActivator.McpResources.ResourceService resourceService) =>
+{
+    try
+    {
+        // Decode the resource URI
+        var decodedUri = Uri.UnescapeDataString(resourceUri);
+        
+        var result = await resourceService.GetResourceContentAsync(decodedUri);
+        
+        if (result.IsError)
+        {
+            return Results.BadRequest(new { error = result.ErrorMessage });
+        }
+
+        return Results.Ok(result.Content);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error in resources/content endpoint: {Message}", ex.Message);
+        return Results.Problem($"Internal server error: {ex.Message}");
+    }
+})
+.WithName("McpResourceContent")
+.WithOpenApi()
+.WithSummary("MCP Resource Content")
+.WithDescription("Get the full content of a specific SEC Edgar document resource by URI");
+
+app.MapGet("/mcp/resources/metadata/{**resourceUri}", async (
+    string resourceUri,
+    ApiGraphActivator.McpResources.ResourceService resourceService) =>
+{
+    try
+    {
+        // Decode the resource URI
+        var decodedUri = Uri.UnescapeDataString(resourceUri);
+        
+        var result = await resourceService.GetResourceMetadataAsync(decodedUri);
+        
+        if (result.IsError)
+        {
+            return Results.BadRequest(new { error = result.ErrorMessage });
+        }
+
+        return Results.Ok(result.Content);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error in resources/metadata endpoint: {Message}", ex.Message);
+        return Results.Problem($"Internal server error: {ex.Message}");
+    }
+})
+.WithName("McpResourceMetadata")
+.WithOpenApi()
+.WithSummary("MCP Resource Metadata")
+.WithDescription("Get metadata for a specific SEC Edgar document resource without the full content");
+
+// MCP Resources Discovery Endpoint
+app.MapGet("/mcp/resources", async (ApiGraphActivator.McpResources.ResourceService resourceService) =>
+{
+    try
+    {
+        // Return a sample of available resources for discovery
+        var parameters = new ApiGraphActivator.McpResources.ResourceListParameters
+        {
+            Limit = 10,
+            Offset = 0,
+            SortBy = "filingDate",
+            SortOrder = "desc"
+        };
+
+        var result = await resourceService.ListResourcesAsync(parameters);
+        
+        if (result.IsError)
+        {
+            return Results.BadRequest(new { error = result.ErrorMessage });
+        }
+
+        var response = new
+        {
+            resourceScheme = "sec-edgar://documents/",
+            totalAvailable = result.Content.TotalCount,
+            sampleResources = result.Content.Resources.Take(5).Select(r => new
+            {
+                r.Uri,
+                r.Name,
+                r.Description,
+                r.MimeType
+            }),
+            endpoints = new
+            {
+                list = "/mcp/resources/list",
+                content = "/mcp/resources/content/{resourceUri}",
+                metadata = "/mcp/resources/metadata/{resourceUri}"
+            }
+        };
+
+        return Results.Ok(response);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error in resources discovery endpoint: {Message}", ex.Message);
+        return Results.Problem($"Internal server error: {ex.Message}");
+    }
+})
+.WithName("McpResourcesDiscovery")
+.WithOpenApi()
+.WithSummary("MCP Resources Discovery")
+.WithDescription("Discover available MCP resources and endpoints");
+
 // M365 Copilot Endpoints
 app.MapPost("/copilot/conversations", async (CreateConversationRequest request, IM365CopilotClient copilotClient) =>
 {
@@ -1060,6 +1221,7 @@ app.MapGet("/copilot/health", async (IM365CopilotClient copilotClient) =>
 .WithOpenApi()
 .WithSummary("Check M365 Copilot Client health")
 .WithDescription("Check if the Copilot client is authenticated and ready to handle requests");
+
 
 app.Run();
 
