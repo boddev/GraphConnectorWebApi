@@ -404,3 +404,6 @@ ApiGraphActivator/appsettings.json
 ApiGraphActivator/ApiGraphActivator.http
 ApiGraphActivator/Properties/launchSettings.json
 M365 Copilot Chat API Documentation.txt
+
+# Workflow data directory
+workflow-data/
