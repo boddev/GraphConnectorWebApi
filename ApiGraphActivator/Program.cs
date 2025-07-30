@@ -66,6 +66,15 @@ builder.Services.AddScoped<CompanySearchTool>();
 builder.Services.AddScoped<FormFilterTool>();
 builder.Services.AddScoped<ContentSearchTool>();
 
+// Register workflow services and tools
+builder.Services.AddSingleton<IWorkflowStorageService, FileWorkflowStorageService>();
+builder.Services.AddScoped<WorkflowExecutionService>();
+builder.Services.AddScoped<WorkflowDefinitionTool>();
+builder.Services.AddScoped<WorkflowExecutionTool>();
+builder.Services.AddScoped<WorkflowStatusTool>();
+builder.Services.AddScoped<BatchProcessingTool>();
+builder.Services.AddScoped<ResultAggregationTool>();
+
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
@@ -661,8 +670,226 @@ app.MapPost("/mcp/tools/content-search", async (ContentSearchParameters paramete
 .WithSummary("MCP Tool: Search document content")
 .WithDescription("Perform full-text search within SEC filing document content with highlighting and relevance scoring");
 
+// Workflow Management Endpoints
+app.MapPost("/mcp/tools/workflow-definition", async (WorkflowDefinitionParameters parameters, WorkflowDefinitionTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing workflow definition tool: {Message}", ex.Message);
+        return Results.Problem($"Workflow definition failed: {ex.Message}");
+    }
+})
+.WithName("McpWorkflowDefinition")
+.WithOpenApi()
+.WithSummary("MCP Tool: Define workflows")
+.WithDescription("Create and manage multi-step workflows that orchestrate MCP tools");
+
+app.MapPost("/mcp/tools/workflow-execution", async (WorkflowExecutionParameters parameters, WorkflowExecutionTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing workflow execution tool: {Message}", ex.Message);
+        return Results.Problem($"Workflow execution failed: {ex.Message}");
+    }
+})
+.WithName("McpWorkflowExecution")
+.WithOpenApi()
+.WithSummary("MCP Tool: Execute workflows")
+.WithDescription("Execute defined workflows with parameter substitution and progress tracking");
+
+app.MapPost("/mcp/tools/workflow-status", async (WorkflowStatusParameters parameters, WorkflowStatusTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing workflow status tool: {Message}", ex.Message);
+        return Results.Problem($"Workflow status failed: {ex.Message}");
+    }
+})
+.WithName("McpWorkflowStatus")
+.WithOpenApi()
+.WithSummary("MCP Tool: Monitor workflow status")
+.WithDescription("Monitor workflow execution progress and retrieve status information");
+
+app.MapPost("/mcp/tools/batch-processing", async (BatchProcessingParameters parameters, BatchProcessingTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing batch processing tool: {Message}", ex.Message);
+        return Results.Problem($"Batch processing failed: {ex.Message}");
+    }
+})
+.WithName("McpBatchProcessing")
+.WithOpenApi()
+.WithSummary("MCP Tool: Batch processing")
+.WithDescription("Execute workflows in batch mode for multiple data items with parallel processing");
+
+app.MapPost("/mcp/tools/result-aggregation", async (ResultAggregationParameters parameters, ResultAggregationTool tool) =>
+{
+    try
+    {
+        var result = await tool.ExecuteAsync(parameters);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error executing result aggregation tool: {Message}", ex.Message);
+        return Results.Problem($"Result aggregation failed: {ex.Message}");
+    }
+})
+.WithName("McpResultAggregation")
+.WithOpenApi()
+.WithSummary("MCP Tool: Aggregate results")
+.WithDescription("Aggregate and analyze results from multiple workflow executions");
+
+// Workflow Management API Endpoints
+app.MapGet("/workflows", async (IWorkflowStorageService workflowStorage) =>
+{
+    try
+    {
+        var workflows = await workflowStorage.GetWorkflowDefinitionsAsync();
+        return Results.Ok(workflows);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error retrieving workflows: {Message}", ex.Message);
+        return Results.Problem($"Failed to retrieve workflows: {ex.Message}");
+    }
+})
+.WithName("GetWorkflows")
+.WithOpenApi()
+.WithSummary("Get all workflow definitions")
+.WithDescription("Retrieve all defined workflows");
+
+app.MapGet("/workflows/{workflowId}", async (string workflowId, IWorkflowStorageService workflowStorage) =>
+{
+    try
+    {
+        var workflow = await workflowStorage.GetWorkflowDefinitionAsync(workflowId);
+        if (workflow == null)
+        {
+            return Results.NotFound($"Workflow with ID {workflowId} not found");
+        }
+        return Results.Ok(workflow);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error retrieving workflow {WorkflowId}: {Message}", workflowId, ex.Message);
+        return Results.Problem($"Failed to retrieve workflow: {ex.Message}");
+    }
+})
+.WithName("GetWorkflow")
+.WithOpenApi()
+.WithSummary("Get workflow definition")
+.WithDescription("Retrieve a specific workflow definition by ID");
+
+app.MapDelete("/workflows/{workflowId}", async (string workflowId, IWorkflowStorageService workflowStorage) =>
+{
+    try
+    {
+        var deleted = await workflowStorage.DeleteWorkflowDefinitionAsync(workflowId);
+        if (!deleted)
+        {
+            return Results.NotFound($"Workflow with ID {workflowId} not found");
+        }
+        return Results.Ok(new { message = "Workflow deleted successfully" });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error deleting workflow {WorkflowId}: {Message}", workflowId, ex.Message);
+        return Results.Problem($"Failed to delete workflow: {ex.Message}");
+    }
+})
+.WithName("DeleteWorkflow")
+.WithOpenApi()
+.WithSummary("Delete workflow definition")
+.WithDescription("Delete a workflow definition by ID");
+
+app.MapGet("/workflow-executions", async (IWorkflowStorageService workflowStorage, string? workflowId = null) =>
+{
+    try
+    {
+        var executions = await workflowStorage.GetWorkflowExecutionsAsync(workflowId);
+        return Results.Ok(executions);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error retrieving workflow executions: {Message}", ex.Message);
+        return Results.Problem($"Failed to retrieve workflow executions: {ex.Message}");
+    }
+})
+.WithName("GetWorkflowExecutions")
+.WithOpenApi()
+.WithSummary("Get workflow executions")
+.WithDescription("Retrieve workflow execution history, optionally filtered by workflow ID");
+
+app.MapGet("/workflow-executions/{executionId}", async (string executionId, IWorkflowStorageService workflowStorage) =>
+{
+    try
+    {
+        var execution = await workflowStorage.GetWorkflowExecutionAsync(executionId);
+        if (execution == null)
+        {
+            return Results.NotFound($"Workflow execution with ID {executionId} not found");
+        }
+        return Results.Ok(execution);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error retrieving workflow execution {ExecutionId}: {Message}", executionId, ex.Message);
+        return Results.Problem($"Failed to retrieve workflow execution: {ex.Message}");
+    }
+})
+.WithName("GetWorkflowExecution")
+.WithOpenApi()
+.WithSummary("Get workflow execution")
+.WithDescription("Retrieve a specific workflow execution by ID");
+
+app.MapPost("/workflow-executions/{executionId}/cancel", async (string executionId, WorkflowExecutionService executionService) =>
+{
+    try
+    {
+        var cancelled = await executionService.CancelWorkflowAsync(executionId);
+        if (!cancelled)
+        {
+            return Results.NotFound($"Workflow execution with ID {executionId} not found or cannot be cancelled");
+        }
+        return Results.Ok(new { message = "Workflow execution cancelled successfully" });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error cancelling workflow execution {ExecutionId}: {Message}", executionId, ex.Message);
+        return Results.Problem($"Failed to cancel workflow execution: {ex.Message}");
+    }
+})
+.WithName("CancelWorkflowExecution")
+.WithOpenApi()
+.WithSummary("Cancel workflow execution")
+.WithDescription("Cancel a running workflow execution");
+
 // MCP Tools Discovery Endpoint
-app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool, ContentSearchTool contentTool) =>
+app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool, ContentSearchTool contentTool,
+    WorkflowDefinitionTool workflowDefTool, WorkflowExecutionTool workflowExecTool, WorkflowStatusTool workflowStatusTool,
+    BatchProcessingTool batchTool, ResultAggregationTool resultTool) =>
 {
     var tools = new[]
     {
@@ -686,6 +913,41 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
             description = contentTool.Description,
             inputSchema = contentTool.InputSchema,
             endpoint = "/mcp/tools/content-search"
+        },
+        new
+        {
+            name = workflowDefTool.Name,
+            description = workflowDefTool.Description,
+            inputSchema = workflowDefTool.InputSchema,
+            endpoint = "/mcp/tools/workflow-definition"
+        },
+        new
+        {
+            name = workflowExecTool.Name,
+            description = workflowExecTool.Description,
+            inputSchema = workflowExecTool.InputSchema,
+            endpoint = "/mcp/tools/workflow-execution"
+        },
+        new
+        {
+            name = workflowStatusTool.Name,
+            description = workflowStatusTool.Description,
+            inputSchema = workflowStatusTool.InputSchema,
+            endpoint = "/mcp/tools/workflow-status"
+        },
+        new
+        {
+            name = batchTool.Name,
+            description = batchTool.Description,
+            inputSchema = batchTool.InputSchema,
+            endpoint = "/mcp/tools/batch-processing"
+        },
+        new
+        {
+            name = resultTool.Name,
+            description = resultTool.Description,
+            inputSchema = resultTool.InputSchema,
+            endpoint = "/mcp/tools/result-aggregation"
         }
     };
 
@@ -694,6 +956,6 @@ app.MapGet("/mcp/tools", (CompanySearchTool companyTool, FormFilterTool formTool
 .WithName("McpToolsDiscovery")
 .WithOpenApi()
 .WithSummary("MCP Tools Discovery")
-.WithDescription("List all available MCP document search tools with their schemas and endpoints");
+.WithDescription("List all available MCP tools with their schemas and endpoints");
 
 app.Run();
