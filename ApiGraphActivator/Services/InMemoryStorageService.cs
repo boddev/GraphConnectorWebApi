@@ -26,15 +26,21 @@ public class InMemoryStorageService : ICrawlStorageService
             lock (_lock)
             {
                 // Check if document already exists
-                if (_documents.Any(d => d.Url == url))
+                var existingDoc = _documents.FirstOrDefault(d => d.Url == url);
+                if (existingDoc != null)
                 {
-                    _logger.LogTrace("Document already tracked: {Url}", url);
+                    // For recrawls, reset the processing status but keep the same ID
+                    existingDoc.Processed = false;
+                    existingDoc.ProcessedDate = null;
+                    existingDoc.Success = true; // Reset to default
+                    existingDoc.ErrorMessage = null;
+                    _logger.LogTrace("Reset existing document for recrawl: {Url}", url);
                     return;
                 }
 
                 var document = new DocumentInfo
                 {
-                    Id = Guid.NewGuid().ToString(),
+                    Id = DocumentIdGenerator.GenerateDocumentId(url),
                     CompanyName = companyName,
                     Form = form,
                     FilingDate = filingDate,
@@ -132,6 +138,93 @@ public class InMemoryStorageService : ICrawlStorageService
                     ErrorMessage = d.ErrorMessage!,
                     ErrorDate = d.ProcessedDate ?? DateTime.UtcNow
                 }).ToList();
+            }
+        });
+    }
+
+    public async Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync()
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var yearlyMetrics = new Dictionary<int, YearlyMetrics>();
+
+                foreach (var doc in _documents)
+                {
+                    var year = doc.FilingDate.Year;
+                    if (!yearlyMetrics.ContainsKey(year))
+                    {
+                        yearlyMetrics[year] = new YearlyMetrics { Year = year };
+                    }
+
+                    var metrics = yearlyMetrics[year];
+                    metrics.TotalDocuments++;
+                    
+                    if (doc.Processed)
+                    {
+                        metrics.ProcessedDocuments++;
+                        if (doc.Success)
+                            metrics.SuccessfulDocuments++;
+                        else
+                            metrics.FailedDocuments++;
+                    }
+
+                    // Track form types
+                    if (!metrics.FormTypeCounts.ContainsKey(doc.Form))
+                        metrics.FormTypeCounts[doc.Form] = 0;
+                    metrics.FormTypeCounts[doc.Form]++;
+
+                    // Track companies
+                    if (!metrics.Companies.Contains(doc.CompanyName))
+                        metrics.Companies.Add(doc.CompanyName);
+                }
+
+                return yearlyMetrics;
+            }
+        });
+    }
+
+    public async Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName)
+    {
+        return await Task.Run(() =>
+        {
+            lock (_lock)
+            {
+                var companyDocuments = _documents.Where(d => d.CompanyName.Equals(companyName, StringComparison.OrdinalIgnoreCase));
+                var yearlyMetrics = new Dictionary<int, YearlyMetrics>();
+
+                foreach (var doc in companyDocuments)
+                {
+                    var year = doc.FilingDate.Year;
+                    if (!yearlyMetrics.ContainsKey(year))
+                    {
+                        yearlyMetrics[year] = new YearlyMetrics { Year = year };
+                    }
+
+                    var metrics = yearlyMetrics[year];
+                    metrics.TotalDocuments++;
+                    
+                    if (doc.Processed)
+                    {
+                        metrics.ProcessedDocuments++;
+                        if (doc.Success)
+                            metrics.SuccessfulDocuments++;
+                        else
+                            metrics.FailedDocuments++;
+                    }
+
+                    // Track form types
+                    if (!metrics.FormTypeCounts.ContainsKey(doc.Form))
+                        metrics.FormTypeCounts[doc.Form] = 0;
+                    metrics.FormTypeCounts[doc.Form]++;
+
+                    // Track companies
+                    if (!metrics.Companies.Contains(doc.CompanyName))
+                        metrics.Companies.Add(doc.CompanyName);
+                }
+
+                return yearlyMetrics;
             }
         });
     }

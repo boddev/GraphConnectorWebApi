@@ -64,14 +64,22 @@ public class AzureStorageService : ICrawlStorageService
             
             if (existingResults.Count > 0)
             {
-                _logger.LogTrace("Document already tracked: {Url}", url);
+                // For recrawls, reset the processing status but keep the same ID
+                var existingEntity = existingResults[0];
+                existingEntity["Processed"] = false;
+                existingEntity["ProcessedDate"] = null;
+                existingEntity["Success"] = true; // Reset to default
+                existingEntity["ErrorMessage"] = null;
+                
+                await _tableClient.UpdateEntityAsync(existingEntity, Azure.ETag.All);
+                _logger.LogTrace("Reset existing document for recrawl: {Url}", url);
                 return;
             }
 
             var newEntity = new TableEntity
             {
                 PartitionKey = companyName,
-                RowKey = Guid.NewGuid().ToString(),
+                RowKey = DocumentIdGenerator.GenerateDocumentId(url),
                 ["CompanyName"] = companyName,
                 ["Form"] = form,
                 ["FilingDate"] = filingDate.ToShortDateString(),
@@ -229,6 +237,137 @@ public class AzureStorageService : ICrawlStorageService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get processing errors for company: {Company}", companyName);
+            throw;
+        }
+    }
+
+    public async Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync()
+    {
+        if (_tableClient == null)
+        {
+            _logger.LogWarning("Azure Table Storage not initialized. Returning empty yearly metrics.");
+            return new Dictionary<int, YearlyMetrics>();
+        }
+
+        try
+        {
+            var results = await Task.Run(() => _tableClient.Query<TableEntity>().ToList());
+            var documents = results.Select(entity => new DocumentInfo
+            {
+                Id = entity.RowKey,
+                CompanyName = entity.GetString("CompanyName") ?? "",
+                Form = entity.GetString("Form") ?? "",
+                FilingDate = DateTime.Parse(entity.GetString("FilingDate") ?? DateTime.MinValue.ToString()),
+                Url = entity.GetString("Url") ?? "",
+                Processed = entity.GetBoolean("Processed") ?? false,
+                ProcessedDate = entity.ContainsKey("ProcessedDate") ? entity.GetDateTimeOffset("ProcessedDate")?.DateTime : null,
+                Success = entity.GetBoolean("Success") ?? true,
+                ErrorMessage = entity.GetString("ErrorMessage")
+            }).ToList();
+
+            var yearlyMetrics = new Dictionary<int, YearlyMetrics>();
+
+            foreach (var doc in documents)
+            {
+                var year = doc.FilingDate.Year;
+                if (!yearlyMetrics.ContainsKey(year))
+                {
+                    yearlyMetrics[year] = new YearlyMetrics { Year = year };
+                }
+
+                var metrics = yearlyMetrics[year];
+                metrics.TotalDocuments++;
+                
+                if (doc.Processed)
+                {
+                    metrics.ProcessedDocuments++;
+                    if (doc.Success)
+                        metrics.SuccessfulDocuments++;
+                    else
+                        metrics.FailedDocuments++;
+                }
+
+                // Track form types
+                if (!metrics.FormTypeCounts.ContainsKey(doc.Form))
+                    metrics.FormTypeCounts[doc.Form] = 0;
+                metrics.FormTypeCounts[doc.Form]++;
+
+                // Track companies
+                if (!metrics.Companies.Contains(doc.CompanyName))
+                    metrics.Companies.Add(doc.CompanyName);
+            }
+
+            return yearlyMetrics;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get yearly metrics");
+            throw;
+        }
+    }
+
+    public async Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName)
+    {
+        if (_tableClient == null)
+        {
+            _logger.LogWarning("Azure Table Storage not initialized. Returning empty yearly metrics.");
+            return new Dictionary<int, YearlyMetrics>();
+        }
+
+        try
+        {
+            string filter = $"CompanyName eq '{companyName}'";
+            var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
+            var documents = results.Select(entity => new DocumentInfo
+            {
+                Id = entity.RowKey,
+                CompanyName = entity.GetString("CompanyName") ?? "",
+                Form = entity.GetString("Form") ?? "",
+                FilingDate = DateTime.Parse(entity.GetString("FilingDate") ?? DateTime.MinValue.ToString()),
+                Url = entity.GetString("Url") ?? "",
+                Processed = entity.GetBoolean("Processed") ?? false,
+                ProcessedDate = entity.ContainsKey("ProcessedDate") ? entity.GetDateTimeOffset("ProcessedDate")?.DateTime : null,
+                Success = entity.GetBoolean("Success") ?? true,
+                ErrorMessage = entity.GetString("ErrorMessage")
+            }).ToList();
+
+            var yearlyMetrics = new Dictionary<int, YearlyMetrics>();
+
+            foreach (var doc in documents)
+            {
+                var year = doc.FilingDate.Year;
+                if (!yearlyMetrics.ContainsKey(year))
+                {
+                    yearlyMetrics[year] = new YearlyMetrics { Year = year };
+                }
+
+                var metrics = yearlyMetrics[year];
+                metrics.TotalDocuments++;
+                
+                if (doc.Processed)
+                {
+                    metrics.ProcessedDocuments++;
+                    if (doc.Success)
+                        metrics.SuccessfulDocuments++;
+                    else
+                        metrics.FailedDocuments++;
+                }
+
+                // Track form types
+                if (!metrics.FormTypeCounts.ContainsKey(doc.Form))
+                    metrics.FormTypeCounts[doc.Form] = 0;
+                metrics.FormTypeCounts[doc.Form]++;
+
+                // Track companies
+                if (!metrics.Companies.Contains(doc.CompanyName))
+                    metrics.Companies.Add(doc.CompanyName);
+            }
+
+            return yearlyMetrics;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get company yearly metrics for: {Company}", companyName);
             throw;
         }
     }

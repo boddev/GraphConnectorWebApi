@@ -1,0 +1,7 @@
+{
+  "dataCollection": {
+    "yearsOfData": 3,
+    "includedFormTypes": ["10-K", "10-Q", "8-K", "DEF 14A"]
+  },
+  "lastUpdated": "2025-07-29T00:00:00Z"
+}

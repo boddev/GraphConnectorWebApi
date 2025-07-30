@@ -257,6 +257,10 @@ code {
 .actions-container {
   margin-top: 30px;
   text-align: center;
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
 .crawl-button {
@@ -276,6 +280,27 @@ code {
 }
 
 .crawl-button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+.recrawl-button {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  padding: 15px 30px;
+  font-size: 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  min-width: 200px;
+}
+
+.recrawl-button:hover:not(:disabled) {
+  background-color: #218838;
+}
+
+.recrawl-button:disabled {
   background-color: #ccc;
   cursor: not-allowed;
 }

@@ -60,7 +60,10 @@ const CrawlHistory = ({ crawledHistory }) => {
                   </div>
                 </div>
                 <div className="crawled-company-status">
-                  ✓ Crawled
+                  <div>✓ Crawled</div>
+                  <div style={{ fontSize: '11px', color: '#666', marginTop: '2px' }}>
+                    {formatDate(crawledHistory.lastCrawlDate || crawledHistory.LastCrawlDate)}
+                  </div>
                 </div>
               </div>
             );

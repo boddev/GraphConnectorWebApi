@@ -239,16 +239,10 @@ public static class EdgarService
                         continue;
                     }
                     var theDate = DateTime.Parse(reportDate[i].ToString());
-                    int yearsOfData = 0;
-                    Int32.TryParse(Environment.GetEnvironmentVariable("YearsOfData"), out yearsOfData);
+                    int yearsOfData = await DataCollectionConfigurationService.GetYearsOfDataAsync();
 
-                    if (yearsOfData == 0)
-                    {
-                        yearsOfData = -3;
-                    }
-
-                    // Check if the date is more than 2 years in the past
-                    if (theDate < DateTime.Now.AddYears(yearsOfData))
+                    // Check if the date is more than the configured years in the past
+                    if (theDate < DateTime.Now.AddYears(-yearsOfData))
                     {
                         continue;
                     }
@@ -290,13 +284,12 @@ public static class EdgarService
                     DateTime? filingDate = DateTime.Parse(entity.GetString("FilingDate"));
                     var url = entity.GetString("Url");
 
-                        // Regex to match non-Base64 characters
-                    itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}";
-                    string pattern = @"[^A-Za-z0-9+/=]";
-                    itemId = Regex.Replace(itemId, pattern, "_");
-                    itemId = itemId.Replace("/","_");
-                    // Check if the form is one of the specified types
-                    if (form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K") || form.ToUpper().Contains("DEF 14A"))
+                    // Generate reproducible itemId based on URL for consistency
+                    itemId = DocumentIdGenerator.GenerateDocumentId(url);
+                    
+                    // Check if the form is one of the configured types
+                    var includedFormTypes = await DataCollectionConfigurationService.GetIncludedFormTypesAsync();
+                    if (includedFormTypes.Any(formType => form.ToUpper().Contains(formType.ToUpper())))
                     {
                         //itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
                         companyField = companyName;
@@ -393,10 +386,11 @@ public static class EdgarService
     // Define a method to insert an item if it does not exist in the table
     public static async Task InsertItemIfNotExists(string companyName, string form, DateTime filingDate, string url)
     {
-        // Check if the form is one of the specified types
-        if (!(form.ToUpper().Contains("10-K") || form.ToUpper().Contains("10-Q") || form.ToUpper().Contains("8-K") || form.ToUpper().Contains("DEF 14A")))
+        // Check if the form is one of the configured types
+        var includedFormTypes = await DataCollectionConfigurationService.GetIncludedFormTypesAsync();
+        if (!includedFormTypes.Any(formType => form.ToUpper().Contains(formType.ToUpper())))
         {
-            _logger?.LogTrace($"Skipping non-10-K/10-Q/8-K/DEF 14A form: {form}");
+            _logger?.LogTrace($"Skipping form not in configured types: {form}");
             return;
         }
 

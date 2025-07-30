@@ -1,6 +1,7 @@
 using ApiGraphActivator.Services;
 using Microsoft.Extensions.Logging.ApplicationInsights;
 using ApiGraphActivator;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -209,6 +210,53 @@ app.MapPost("/loadcontent", async (HttpContext context, BackgroundTaskQueue task
 .WithName("loadcontent")
 .WithOpenApi();
 
+app.MapPost("/recrawl-all", async (HttpContext context, BackgroundTaskQueue taskQueue) =>
+{
+    try
+    {
+        staticServiceLogger.LogInformation("Received recrawl-all request");
+        
+        // Load previously crawled companies
+        var config = await ConfigurationService.LoadCrawledCompaniesAsync();
+        
+        if (config?.Companies?.Any() != true)
+        {
+            staticServiceLogger.LogWarning("No previously crawled companies found");
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("No previously crawled companies found. Please crawl companies first.");
+            return;
+        }
+
+        staticServiceLogger.LogInformation("Starting recrawl for {CompanyCount} previously crawled companies", config.Companies.Count);
+        
+        // Update the last crawl date
+        config.LastCrawlDate = DateTime.UtcNow;
+        await ConfigurationService.SaveCrawledCompaniesAsync(config.Companies);
+        
+        // Queue the background task with previously crawled companies
+        await taskQueue.QueueBackgroundWorkItemAsync(async token =>
+        {
+            staticServiceLogger.LogInformation("Background recrawl task started for {CompanyCount} companies", config.Companies.Count);
+            await ContentService.LoadContentForCompanies(config.Companies);
+            staticServiceLogger.LogInformation("Background recrawl task completed for {CompanyCount} companies", config.Companies.Count);
+        });
+        
+        staticServiceLogger.LogInformation("Background recrawl task queued successfully");
+        
+        // Return a response immediately
+        context.Response.StatusCode = StatusCodes.Status202Accepted;
+        await context.Response.WriteAsync($"Recrawl started successfully for {config.Companies.Count} companies");
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error starting recrawl: {Message}", ex.Message);
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await context.Response.WriteAsync($"Error starting recrawl: {ex.Message}");
+    }
+})
+.WithName("RecrawlAll")
+.WithOpenApi();
+
 app.MapGet("/companies", async (HttpContext context) =>
 {
     try
@@ -403,6 +451,83 @@ app.MapGet("/crawl-status", async (StorageConfigurationService storageConfigServ
     }
 })
 .WithName("GetCrawlStatus")
+.WithOpenApi();
+
+// Data Collection Configuration endpoints
+app.MapGet("/data-collection-config", async (HttpContext context) =>
+{
+    try
+    {
+        var config = await DataCollectionConfigurationService.LoadConfigurationAsync();
+        return Results.Ok(config);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error retrieving data collection config: {Error}", ex.Message);
+        return Results.StatusCode(500);
+    }
+})
+.WithName("GetDataCollectionConfig")
+.WithOpenApi();
+
+app.MapPost("/data-collection-config", async (HttpContext context) =>
+{
+    try
+    {
+        var json = await new StreamReader(context.Request.Body).ReadToEndAsync();
+        var config = JsonSerializer.Deserialize<DataCollectionConfiguration>(json, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        
+        if (config != null)
+        {
+            await DataCollectionConfigurationService.SaveConfigurationAsync(config);
+            staticServiceLogger.LogInformation("Data collection config updated: {Years} years of data", config.YearsOfData);
+            return Results.Ok(config);
+        }
+        
+        return Results.BadRequest("Invalid configuration data");
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error saving data collection config: {Error}", ex.Message);
+        return Results.StatusCode(500);
+    }
+})
+.WithName("SaveDataCollectionConfig")
+.WithOpenApi();
+
+// Yearly metrics endpoints
+app.MapGet("/crawl-metrics/yearly", async (StorageConfigurationService storageConfigService) =>
+{
+    try
+    {
+        var storageService = await storageConfigService.GetStorageServiceAsync();
+        var yearlyMetrics = await storageService.GetYearlyMetricsAsync();
+        return Results.Ok(yearlyMetrics);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error retrieving yearly metrics: {Error}", ex.Message);
+        return Results.StatusCode(500);
+    }
+})
+.WithName("GetYearlyMetrics")
+.WithOpenApi();
+
+app.MapGet("/crawl-metrics/yearly/{companyName}", async (string companyName, StorageConfigurationService storageConfigService) =>
+{
+    try
+    {
+        var storageService = await storageConfigService.GetStorageServiceAsync();
+        var yearlyMetrics = await storageService.GetCompanyYearlyMetricsAsync(companyName);
+        return Results.Ok(yearlyMetrics);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error retrieving yearly metrics for company {Company}: {Error}", companyName, ex.Message);
+        return Results.StatusCode(500);
+    }
+})
+.WithName("GetCompanyYearlyMetrics")
 .WithOpenApi();
 
 app.Run();

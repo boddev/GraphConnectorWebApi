@@ -54,6 +54,23 @@ export const triggerCrawl = async (selectedCompanies) => {
   }
 };
 
+// Service to trigger recrawl of all previously crawled companies
+export const triggerRecrawlAll = async () => {
+  try {
+    console.log('Triggering recrawl for all previously crawled companies');
+    const response = await axios.post(`${API_BASE_URL}/recrawl-all`);
+    
+    console.log('Recrawl response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('Error triggering recrawl:', error);
+    if (error.response?.status === 400) {
+      throw new Error('No previously crawled companies found. Please crawl companies first.');
+    }
+    throw new Error('Failed to trigger recrawl process');
+  }
+};
+
 // Service to provision connection
 export const provisionConnection = async (tenantId) => {
   try {
@@ -146,6 +163,48 @@ export const getCrawlErrors = async (companyName = null) => {
   }
 };
 
+// Data Collection Configuration methods
+export const getDataCollectionConfig = async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/data-collection-config`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching data collection config:', error);
+    throw new Error('Failed to fetch data collection config');
+  }
+};
+
+export const saveDataCollectionConfig = async (config) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/data-collection-config`, config);
+    return response.data;
+  } catch (error) {
+    console.error('Error saving data collection config:', error);
+    throw new Error('Failed to save data collection config');
+  }
+};
+
+// Yearly metrics methods
+export const getYearlyMetrics = async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/crawl-metrics/yearly`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching yearly metrics:', error);
+    throw new Error('Failed to fetch yearly metrics');
+  }
+};
+
+export const getCompanyYearlyMetrics = async (companyName) => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/crawl-metrics/yearly/${encodeURIComponent(companyName)}`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching company yearly metrics:', error);
+    throw new Error('Failed to fetch company yearly metrics');
+  }
+};
+
 // Export as default object for easier importing
 const apiService = {
   get: axios.get,
@@ -160,7 +219,11 @@ const apiService = {
   testStorageConfig,
   getCrawlMetrics,
   getCompanyCrawlMetrics,
-  getCrawlErrors
+  getCrawlErrors,
+  getDataCollectionConfig,
+  saveDataCollectionConfig,
+  getYearlyMetrics,
+  getCompanyYearlyMetrics
 };
 
 export { apiService };

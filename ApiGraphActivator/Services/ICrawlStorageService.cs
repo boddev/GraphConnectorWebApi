@@ -10,6 +10,8 @@ public interface ICrawlStorageService
     Task<List<DocumentInfo>> GetUnprocessedAsync();
     Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null);
     Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null);
+    Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync();
+    Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName);
     Task<bool> IsHealthyAsync();
     string GetStorageType();
 }
@@ -72,4 +74,50 @@ public class StorageConfiguration
     public string BlobContainerName { get; set; } = "filings";
     public string LocalDataPath { get; set; } = "./data";
     public bool AutoCreateTables { get; set; } = true;
+}
+
+public class YearlyMetrics
+{
+    public int Year { get; set; }
+    public int TotalDocuments { get; set; }
+    public int ProcessedDocuments { get; set; }
+    public int SuccessfulDocuments { get; set; }
+    public int FailedDocuments { get; set; }
+    public int PendingDocuments => TotalDocuments - ProcessedDocuments;
+    public double SuccessRate => TotalDocuments > 0 ? (double)SuccessfulDocuments / TotalDocuments * 100 : 0;
+    public Dictionary<string, int> FormTypeCounts { get; set; } = new();
+    public List<string> Companies { get; set; } = new();
+}
+
+public static class DocumentIdGenerator
+{
+    /// <summary>
+    /// Generates a reproducible ID based on the document's URL
+    /// This ensures the same document always gets the same ID across crawls
+    /// </summary>
+    public static string GenerateDocumentId(string url)
+    {
+        if (string.IsNullOrEmpty(url))
+            return Guid.NewGuid().ToString();
+
+        // Use a hash of the URL to create a reproducible ID
+        using (var sha256 = System.Security.Cryptography.SHA256.Create())
+        {
+            var hash = sha256.ComputeHash(System.Text.Encoding.UTF8.GetBytes(url));
+            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+        }
+    }
+
+    /// <summary>
+    /// Generates a reproducible ID based on company name, form, and filing date
+    /// This is an alternative approach that creates human-readable IDs
+    /// </summary>
+    public static string GenerateDocumentId(string companyName, string form, DateTime filingDate)
+    {
+        var cleanCompanyName = System.Text.RegularExpressions.Regex.Replace(companyName, @"[^A-Za-z0-9]", "_");
+        var cleanForm = System.Text.RegularExpressions.Regex.Replace(form, @"[^A-Za-z0-9]", "_");
+        var dateString = filingDate.ToString("yyyy-MM-dd");
+        
+        return $"{cleanCompanyName}_{cleanForm}_{dateString}".ToLowerInvariant();
+    }
 }

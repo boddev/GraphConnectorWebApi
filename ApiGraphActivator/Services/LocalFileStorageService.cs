@@ -52,15 +52,22 @@ public class LocalFileStorageService : ICrawlStorageService
             var documents = await LoadDocumentsAsync();
             
             // Check if document already exists
-            if (documents.Any(d => d.Url == url))
+            var existingDoc = documents.FirstOrDefault(d => d.Url == url);
+            if (existingDoc != null)
             {
-                _logger.LogTrace("Document already tracked: {Url}", url);
+                // For recrawls, reset the processing status but keep the same ID
+                existingDoc.Processed = false;
+                existingDoc.ProcessedDate = null;
+                existingDoc.Success = true; // Reset to default
+                existingDoc.ErrorMessage = null;
+                _logger.LogTrace("Reset existing document for recrawl: {Url}", url);
+                await SaveDocumentsAsync(documents);
                 return;
             }
 
             var newDoc = new DocumentInfo
             {
-                Id = Guid.NewGuid().ToString(),
+                Id = DocumentIdGenerator.GenerateDocumentId(url),
                 CompanyName = companyName,
                 Form = form,
                 FilingDate = filingDate,
@@ -170,6 +177,99 @@ public class LocalFileStorageService : ICrawlStorageService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get processing errors for company: {Company}", companyName);
+            throw;
+        }
+    }
+
+    public async Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync()
+    {
+        try
+        {
+            var documents = await LoadDocumentsAsync();
+            var yearlyMetrics = new Dictionary<int, YearlyMetrics>();
+
+            foreach (var doc in documents)
+            {
+                var year = doc.FilingDate.Year;
+                if (!yearlyMetrics.ContainsKey(year))
+                {
+                    yearlyMetrics[year] = new YearlyMetrics { Year = year };
+                }
+
+                var metrics = yearlyMetrics[year];
+                metrics.TotalDocuments++;
+                
+                if (doc.Processed)
+                {
+                    metrics.ProcessedDocuments++;
+                    if (doc.Success)
+                        metrics.SuccessfulDocuments++;
+                    else
+                        metrics.FailedDocuments++;
+                }
+
+                // Track form types
+                if (!metrics.FormTypeCounts.ContainsKey(doc.Form))
+                    metrics.FormTypeCounts[doc.Form] = 0;
+                metrics.FormTypeCounts[doc.Form]++;
+
+                // Track companies
+                if (!metrics.Companies.Contains(doc.CompanyName))
+                    metrics.Companies.Add(doc.CompanyName);
+            }
+
+            return yearlyMetrics;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get yearly metrics");
+            throw;
+        }
+    }
+
+    public async Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName)
+    {
+        try
+        {
+            var documents = await LoadDocumentsAsync();
+            var companyDocuments = documents.Where(d => d.CompanyName.Equals(companyName, StringComparison.OrdinalIgnoreCase));
+            var yearlyMetrics = new Dictionary<int, YearlyMetrics>();
+
+            foreach (var doc in companyDocuments)
+            {
+                var year = doc.FilingDate.Year;
+                if (!yearlyMetrics.ContainsKey(year))
+                {
+                    yearlyMetrics[year] = new YearlyMetrics { Year = year };
+                }
+
+                var metrics = yearlyMetrics[year];
+                metrics.TotalDocuments++;
+                
+                if (doc.Processed)
+                {
+                    metrics.ProcessedDocuments++;
+                    if (doc.Success)
+                        metrics.SuccessfulDocuments++;
+                    else
+                        metrics.FailedDocuments++;
+                }
+
+                // Track form types
+                if (!metrics.FormTypeCounts.ContainsKey(doc.Form))
+                    metrics.FormTypeCounts[doc.Form] = 0;
+                metrics.FormTypeCounts[doc.Form]++;
+
+                // Track companies (will just be this one company)
+                if (!metrics.Companies.Contains(doc.CompanyName))
+                    metrics.Companies.Add(doc.CompanyName);
+            }
+
+            return yearlyMetrics;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get company yearly metrics for: {Company}", companyName);
             throw;
         }
     }

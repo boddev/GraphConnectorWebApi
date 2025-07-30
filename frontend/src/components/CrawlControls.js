@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const CrawlControls = ({ selectedCompanies, onTriggerCrawl, crawling }) => {
+const CrawlControls = ({ selectedCompanies, onTriggerCrawl, onTriggerRecrawlAll, crawling, crawledHistory }) => {
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState(''); // 'success' or 'error'
 
@@ -18,6 +18,24 @@ const CrawlControls = ({ selectedCompanies, onTriggerCrawl, crawling }) => {
       setMessageType('success');
     } catch (error) {
       setMessage(`Failed to start crawl: ${error.message}`);
+      setMessageType('error');
+    }
+  };
+
+  const handleRecrawlAllClick = async () => {
+    if (!crawledHistory?.companies?.length) {
+      setMessage('No previously crawled companies found. Please crawl companies first.');
+      setMessageType('error');
+      return;
+    }
+
+    try {
+      setMessage('');
+      await onTriggerRecrawlAll();
+      setMessage(`Recrawl started successfully for ${crawledHistory.companies.length} previously crawled companies. The process is running in the background.`);
+      setMessageType('success');
+    } catch (error) {
+      setMessage(`Failed to start recrawl: ${error.message}`);
       setMessageType('error');
     }
   };
@@ -40,9 +58,20 @@ const CrawlControls = ({ selectedCompanies, onTriggerCrawl, crawling }) => {
         >
           {crawling ? 'Crawling in Progress...' : `Start Crawl (${selectedCompanies.length} companies)`}
         </button>
+        
+        {crawledHistory?.companies?.length > 0 && (
+          <button
+            className="recrawl-button"
+            onClick={handleRecrawlAllClick}
+            disabled={crawling}
+            title={`Recrawl all ${crawledHistory.companies.length} previously crawled companies`}
+          >
+            {crawling ? 'Crawling in Progress...' : `Recrawl All (${crawledHistory.companies.length} companies)`}
+          </button>
+        )}
       </div>
 
-      {selectedCompanies.length > 0 && (
+      {selectedCompanies.length > 0 && !crawledHistory?.companies?.length && (
         <div className="section">
           <h3>Selected Companies for Crawl:</h3>
           <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
@@ -55,6 +84,28 @@ const CrawlControls = ({ selectedCompanies, onTriggerCrawl, crawling }) => {
                 <strong>{company.ticker}</strong> - {company.title}
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {selectedCompanies.length > 0 && crawledHistory?.companies?.length > 0 && (
+        <div className="section">
+          <h3>Selected Companies for New Crawl ({selectedCompanies.length}):</h3>
+          <div style={{ maxHeight: '120px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px' }}>
+            {selectedCompanies.slice(0, 5).map((company, index) => (
+              <div key={company.cik} style={{ 
+                padding: '6px 12px', 
+                borderBottom: index < Math.min(selectedCompanies.length, 5) - 1 ? '1px solid #eee' : 'none',
+                fontSize: '13px'
+              }}>
+                <strong>{company.ticker}</strong> - {company.title}
+              </div>
+            ))}
+            {selectedCompanies.length > 5 && (
+              <div style={{ padding: '6px 12px', fontSize: '13px', fontStyle: 'italic', color: '#666' }}>
+                ... and {selectedCompanies.length - 5} more companies
+              </div>
+            )}
           </div>
         </div>
       )}

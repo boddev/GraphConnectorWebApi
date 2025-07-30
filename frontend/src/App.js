@@ -4,7 +4,8 @@ import CrawlControls from './components/CrawlControls';
 import CrawlHistory from './components/CrawlHistory';
 import StorageConfig from './components/StorageConfig';
 import CrawlMetricsDashboard from './components/CrawlMetricsDashboard';
-import { fetchCompanyTickers, fetchCrawledCompanies, triggerCrawl } from './services/apiService';
+import DataCollectionConfig from './components/DataCollectionConfig';
+import { fetchCompanyTickers, fetchCrawledCompanies, triggerCrawl, triggerRecrawlAll } from './services/apiService';
 
 function App() {
   const [companies, setCompanies] = useState([]);
@@ -14,7 +15,7 @@ function App() {
   const [error, setError] = useState('');
   const [crawling, setCrawling] = useState(false);
   const [showStorageConfig, setShowStorageConfig] = useState(false);
-  const [activeTab, setActiveTab] = useState('crawl'); // 'crawl' or 'metrics'
+  const [activeTab, setActiveTab] = useState('crawl'); // 'crawl', 'metrics', or 'config'
 
   // Load company data and crawl history on component mount
   useEffect(() => {
@@ -53,6 +54,18 @@ function App() {
     try {
       await triggerCrawl(companies);
       // Refresh crawl history after successful crawl
+      const updatedHistory = await fetchCrawledCompanies();
+      setCrawledHistory(updatedHistory);
+    } finally {
+      setCrawling(false);
+    }
+  };
+
+  const handleTriggerRecrawlAll = async () => {
+    setCrawling(true);
+    try {
+      await triggerRecrawlAll();
+      // Refresh crawl history after successful recrawl
       const updatedHistory = await fetchCrawledCompanies();
       setCrawledHistory(updatedHistory);
     } finally {
@@ -121,6 +134,12 @@ function App() {
         >
           📊 Metrics Dashboard
         </button>
+        <button 
+          className={`tab-button ${activeTab === 'config' ? 'active' : ''}`}
+          onClick={() => setActiveTab('config')}
+        >
+          ⚙️ Configuration
+        </button>
       </div>
       
       <main className="main-content">
@@ -137,15 +156,19 @@ function App() {
             <CrawlControls
               selectedCompanies={selectedCompanies}
               onTriggerCrawl={handleTriggerCrawl}
+              onTriggerRecrawlAll={handleTriggerRecrawlAll}
               crawling={crawling}
+              crawledHistory={crawledHistory}
             />
 
             <CrawlHistory 
               crawledHistory={crawledHistory}
             />
           </>
-        ) : (
+        ) : activeTab === 'metrics' ? (
           <CrawlMetricsDashboard />
+        ) : (
+          <DataCollectionConfig />
         )}
       </main>
 
