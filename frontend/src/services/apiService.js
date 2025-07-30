@@ -209,6 +209,32 @@ export const getCompanyYearlyMetrics = async (companyName) => {
   }
 };
 
+// Service to get scheduler configuration
+export const getSchedulerConfig = async () => {
+  try {
+    console.log('API Service: Getting scheduler config');
+    const response = await axios.get(`${API_BASE_URL}/scheduler-config`);
+    console.log('API Service: Scheduler config response:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('API Service: Error getting scheduler config:', error);
+    throw new Error('Failed to get scheduler configuration');
+  }
+};
+
+// Service to save scheduler configuration
+export const saveSchedulerConfig = async (config) => {
+  try {
+    console.log('API Service: Saving scheduler config:', config);
+    const response = await axios.post(`${API_BASE_URL}/scheduler-config`, config);
+    console.log('API Service: Scheduler config saved:', response.data);
+    return response.data;
+  } catch (error) {
+    console.error('API Service: Error saving scheduler config:', error);
+    throw new Error('Failed to save scheduler configuration');
+  }
+};
+
 // Export as default object for easier importing
 const apiService = {
   get: axios.get,
@@ -227,7 +253,9 @@ const apiService = {
   getDataCollectionConfig,
   saveDataCollectionConfig,
   getYearlyMetrics,
-  getCompanyYearlyMetrics
+  getCompanyYearlyMetrics,
+  getSchedulerConfig,
+  saveSchedulerConfig
 };
 
 export { apiService };

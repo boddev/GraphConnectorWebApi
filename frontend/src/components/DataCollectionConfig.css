@@ -250,3 +250,98 @@ button[disabled] {
     width: 100%;
   }
 }
+
+/* Scheduler Configuration Styles */
+.scheduler-config {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.config-option {
+  margin-bottom: 16px;
+}
+
+.config-option:last-child {
+  margin-bottom: 0;
+}
+
+.option-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #374151;
+}
+
+.option-label input[type="checkbox"] {
+  margin: 0;
+  transform: scale(1.1);
+}
+
+.frequency-select,
+.hour-select,
+.day-select {
+  padding: 6px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  background: white;
+  margin-left: 8px;
+  min-width: 120px;
+}
+
+.frequency-select:focus,
+.hour-select:focus,
+.day-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.scheduler-status {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  padding: 12px;
+  margin-top: 16px;
+}
+
+.status-item {
+  font-size: 0.875rem;
+  color: #374151;
+  margin-bottom: 8px;
+}
+
+.status-item:last-child {
+  margin-bottom: 0;
+}
+
+.scheduler-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.scheduler-actions .save-button,
+.scheduler-actions .reset-button,
+.scheduler-actions .refresh-button {
+  padding: 8px 16px;
+  font-size: 0.875rem;
+  flex: 1;
+}
+
+@media (max-width: 768px) {
+  .scheduler-actions {
+    flex-direction: column;
+  }
+  
+  .scheduler-actions .save-button,
+  .scheduler-actions .reset-button,
+  .scheduler-actions .refresh-button {
+    width: 100%;
+  }
+}

@@ -51,6 +51,7 @@ builder.Services.AddSingleton<LoggingService>();
 builder.Services.AddSingleton<StorageConfigurationService>();
 builder.Services.AddSingleton<BackgroundTaskQueue>(sp => new BackgroundTaskQueue(100));
 builder.Services.AddHostedService<QueuedHostedService>();
+builder.Services.AddHostedService<SchedulerService>();
 
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
@@ -524,6 +525,71 @@ app.MapGet("/crawl-metrics/yearly/{companyName}", async (string companyName, Sto
     }
 })
 .WithName("GetCompanyYearlyMetrics")
+.WithOpenApi();
+
+// Scheduler Configuration Endpoints
+app.MapGet("/scheduler-config", async (HttpContext context) =>
+{
+    try
+    {
+        staticServiceLogger.LogInformation("Received request to get scheduler config");
+        
+        // Create a temporary instance to access the config file
+        var tempScheduler = new SchedulerService(
+            context.RequestServices.GetRequiredService<ILogger<SchedulerService>>(),
+            context.RequestServices.GetRequiredService<BackgroundTaskQueue>()
+        );
+        
+        var config = await tempScheduler.LoadScheduleConfigAsync();
+        return Results.Ok(config);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting scheduler config: {Error}", ex.Message);
+        return Results.StatusCode(500);
+    }
+})
+.WithName("GetSchedulerConfig")
+.WithOpenApi();
+
+app.MapPost("/scheduler-config", async (HttpContext context) =>
+{
+    try
+    {
+        staticServiceLogger.LogInformation("Received request to save scheduler config");
+        
+        var config = await context.Request.ReadFromJsonAsync<ScheduleConfig>();
+        if (config == null)
+        {
+            return Results.BadRequest("Invalid configuration data");
+        }
+
+        // Create a temporary instance to save the config
+        var tempScheduler = new SchedulerService(
+            context.RequestServices.GetRequiredService<ILogger<SchedulerService>>(),
+            context.RequestServices.GetRequiredService<BackgroundTaskQueue>()
+        );
+        
+        // Recalculate next run time when config is updated
+        if (config.Enabled)
+        {
+            config.NextScheduledRun = null; // Will be recalculated by the service
+        }
+        
+        await tempScheduler.SaveScheduleConfigAsync(config);
+        
+        staticServiceLogger.LogInformation("Scheduler config saved successfully. Enabled: {Enabled}, Frequency: {Frequency}", 
+            config.Enabled, config.Frequency);
+        
+        return Results.Ok(new { message = "Scheduler configuration saved successfully", config });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error saving scheduler config: {Error}", ex.Message);
+        return Results.StatusCode(500);
+    }
+})
+.WithName("SaveSchedulerConfig")
 .WithOpenApi();
 
 app.Run();
