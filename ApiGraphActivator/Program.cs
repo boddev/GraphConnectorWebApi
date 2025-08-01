@@ -76,6 +76,12 @@ app.UseHttpsRedirection();
 // Use CORS
 app.UseCors("AllowReactApp");
 
+// Serve static files from wwwroot (React app)
+app.UseStaticFiles();
+
+// Enable default files (serves index.html by default)
+app.UseDefaultFiles();
+
 // Create a factory-based logger that's appropriate for static classes
 var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
 var staticServiceLogger = loggerFactory.CreateLogger("ApiGraphActivator.Services.StaticServices");
@@ -101,9 +107,8 @@ catch (Exception ex)
 // Log a test message to verify Application Insights is working
 staticServiceLogger.LogInformation("Application started and Application Insights is configured.");
 
-app.MapGet("/", () => "Hello World!")
-    .WithName("GetHelloWorld")
-    .WithOpenApi();
+// Configure SPA fallback routing - serve React app for unmatched routes
+app.MapFallbackToFile("index.html");
 
 app.MapPost("/grantPermissions", async (HttpContext context) =>
 {
