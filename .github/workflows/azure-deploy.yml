@@ -1,0 +1,74 @@
+name: Build and Deploy to Azure App Service
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  AZURE_WEBAPP_NAME: 'your-app-name'  # Set this to your Azure Web App name
+  AZURE_WEBAPP_PACKAGE_PATH: './ApiGraphActivator'
+  NODE_VERSION: '18.x'
+  DOTNET_VERSION: '8.0.x'
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    # Checkout the repository
+    - name: 'Checkout GitHub Action'
+      uses: actions/checkout@v4
+
+    # Setup Node.js for React build
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: './frontend/package-lock.json'
+
+    # Install and build React app
+    - name: Install and Build React App
+      run: |
+        cd frontend
+        npm ci
+        npm run build
+        
+    # Setup .NET Core
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+
+    # Create wwwroot directory if it doesn't exist
+    - name: Create wwwroot directory
+      run: |
+        mkdir -p ApiGraphActivator/wwwroot
+        
+    # Copy React build to ASP.NET Core wwwroot
+    - name: Copy React build to wwwroot
+      run: |
+        cp -r frontend/build/* ApiGraphActivator/wwwroot/
+        
+    # Restore dependencies
+    - name: Restore dependencies
+      run: dotnet restore ApiGraphActivator/ApiGraphActivator.csproj
+
+    # Build the application
+    - name: Build
+      run: dotnet build ApiGraphActivator/ApiGraphActivator.csproj --configuration Release --no-restore
+
+    # Publish the application
+    - name: Publish
+      run: dotnet publish ApiGraphActivator/ApiGraphActivator.csproj --configuration Release --no-build --output ./publish
+
+    # Deploy to Azure Web App
+    - name: 'Deploy to Azure WebApp'
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        package: './publish'
