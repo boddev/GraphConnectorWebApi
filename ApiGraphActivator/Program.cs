@@ -53,6 +53,12 @@ builder.Services.AddSingleton<BackgroundTaskQueue>(sp => new BackgroundTaskQueue
 builder.Services.AddHostedService<QueuedHostedService>();
 builder.Services.AddHostedService<SchedulerService>();
 
+// Register MCP Server Service
+builder.Services.AddHttpClient();
+builder.Services.AddScoped<MCPServerService>();
+builder.Services.AddScoped<CopilotChatService>();
+builder.Services.AddScoped<DocumentSearchService>();
+
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
 
@@ -591,6 +597,14 @@ app.MapPost("/scheduler-config", async (HttpContext context) =>
     }
 })
 .WithName("SaveSchedulerConfig")
+.WithOpenApi();
+
+// Add MCP Server endpoint
+app.MapPost("/mcp", async (MCPRequest request, MCPServerService mcpService) =>
+{
+    return await mcpService.HandleRequest(request);
+})
+.WithName("MCPServer")
 .WithOpenApi();
 
 app.Run();

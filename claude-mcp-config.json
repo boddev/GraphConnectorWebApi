@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "edgar-processor": {
+      "command": "node",
+      "args": [
+        "-e",
+        "const https = require('https'); const http = require('http'); process.stdin.on('data', data => { const req = (process.env.NODE_ENV === 'production' ? https : http).request({ hostname: 'localhost', port: process.env.NODE_ENV === 'production' ? 443 : 7000, path: '/mcp', method: 'POST', headers: { 'Content-Type': 'application/json' } }, res => { let body = ''; res.on('data', chunk => body += chunk); res.on('end', () => console.log(body)); }); req.write(data); req.end(); });"
+      ],
+      "env": {
+        "NODE_ENV": "development"
+      }
+    }
+  }
+}
