@@ -1,7 +1,7 @@
 # Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
 # More GitHub Actions for Azure: https://github.com/Azure/actions
 
-name: Build and deploy ASP.Net Core app to Azure Web App - EdgarConnector
+name: Build and deploy Azure Web App - EdgarConnector
 
 on:
   push:
@@ -23,12 +23,13 @@ jobs:
         with:
           node-version: '18.x'
           cache: 'npm'
-          cache-dependency-path: './frontend/package-lock.json'
+          cache-dependency-path: './frontend/package.json'
 
       - name: Install and Build React Frontend
         run: |
           cd frontend
-          npm ci
+          npm cache clean --force
+          npm install
           npm run build
 
       - name: Set up .NET Core
