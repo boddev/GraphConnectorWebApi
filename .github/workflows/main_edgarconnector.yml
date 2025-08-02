@@ -84,6 +84,21 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_A79985650572425BB30AEF249A39F362 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_2246E411E4B74AAA974C8B642D35D452 }}
 
+      - name: Configure Azure App Service Settings
+        run: |
+          az webapp config appsettings set --name EdgarConnector --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --settings `
+            "ASPNETCORE_ENVIRONMENT=Production" `
+            "TableStorage=${{ secrets.TABLE_STORAGE }}" `
+            "CompanyTableName=trackedCompanies" `
+            "ProcessedTableName=processedFormsText" `
+            "BlobContainerName=${{ secrets.BLOB_CONTAINER_NAME }}" `
+            "APPLICATIONINSIGHTS_CONNECTION_STRING=${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}" `
+            "EmailAddress=${{ secrets.EMAIL_ADDRESS }}" `
+            "AzureAd__ClientId=${{ secrets.AZUREAD_CLIENT_ID }}" `
+            "AzureAd__ClientSecret=${{ secrets.AZUREAD_CLIENT_SECRET }}" `
+            "AzureAd__TenantId=${{ secrets.AZUREAD_TENANT_ID }}"
+        shell: pwsh
+
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v2
