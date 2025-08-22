@@ -14,6 +14,27 @@ static class ContentService
   // Define a static list to hold ExternalItem objects
   static List<ExternalItem> items = new();
 
+  // Helper method to get default connection ID
+  private static async Task<string> GetDefaultConnectionIdAsync()
+  {
+    try
+    {
+      // Create a logger factory and service instance to get the default connection
+      var loggerFactory = LoggerFactory.Create(builder => builder.AddConsole());
+      var serviceLogger = loggerFactory.CreateLogger<ExternalConnectionManagerService>();
+      var connectionService = new ExternalConnectionManagerService(serviceLogger);
+      var defaultConnectionId = await connectionService.GetDefaultConnectionIdAsync();
+      
+      // Fall back to hardcoded connection if no default is found
+      return defaultConnectionId ?? ConnectionConfiguration.ExternalConnection.Id!;
+    }
+    catch (Exception ex)
+    {
+      logger.LogError(ex, "Error getting default connection ID, using hardcoded fallback");
+      return ConnectionConfiguration.ExternalConnection.Id!;
+    }
+  }
+
   // Define an asynchronous static method named Extract
   async static Task Extract()
   {
@@ -22,7 +43,7 @@ static class ContentService
   }
 
   // Define a static method named Transform that takes an EdgarExternalItem as a parameter
-  public static async void Transform(EdgarExternalItem item)
+  public static async void Transform(EdgarExternalItem item, string? connectionId = null)
   {
     // Create a new ExternalItem object and populate its properties
     ExternalItem exItem = new ExternalItem
@@ -59,24 +80,31 @@ static class ContentService
         }
     };
 
-    await Load(exItem);
+    await Load(exItem, connectionId);
     // Add the created ExternalItem to the items list
     //items.Add(exItem);
   }
 
   // Define an asynchronous static method named Load
-  static async Task Load(ExternalItem item)
+  static async Task Load(ExternalItem item, string? connectionId = null)
   {
+    // Use provided connection ID or get the default connection ID
+    string targetConnectionId = connectionId ?? await GetDefaultConnectionIdAsync();
+    
+    // Log which connection ID is being used
+    logger.LogInformation("Loading content to connection: {ConnectionId} (provided: {ProvidedConnectionId})", 
+      targetConnectionId, connectionId ?? "null");
+    
     // Iterate over each item in the items list
     //foreach (var item in items)
     {
       // Output a message to the console indicating the start of the item loading process
-      logger.LogTrace(string.Format("Loading item {0}...", item.Id));
+      logger.LogTrace(string.Format("Loading item {0} to connection {1}...", item.Id, targetConnectionId));
       try
       {
         // Await the asynchronous operation of putting the item into the GraphService client
         await GraphService.Client.External
-          .Connections[Uri.EscapeDataString(ConnectionConfiguration.ExternalConnection.Id!)]
+          .Connections[Uri.EscapeDataString(targetConnectionId)]
           .Items[item.Id]
           .PutAsync(item);
         // Output a message to the console indicating the completion of the item loading process
@@ -99,7 +127,7 @@ static class ContentService
   }
 
   // Define a public asynchronous static method named LoadContent
-  public static async Task LoadContent()
+  public static async Task LoadContent(string? connectionId = null)
   {
     // Call the Extract method to populate the content list
     await Extract();
@@ -115,12 +143,12 @@ static class ContentService
   }
 
   // Define a public asynchronous static method named LoadContentForCompanies
-  public static async Task LoadContentForCompanies(List<Company> companies)
+  public static async Task LoadContentForCompanies(List<Company> companies, string? connectionId = null)
   {
     logger.LogInformation("Starting content extraction for {CompanyCount} companies", companies.Count);
     
     // Extract content for specific companies
-    await ExtractForCompanies(companies);
+    await ExtractForCompanies(companies, connectionId);
 
     // // Iterate over each item in the content list and transform it
     // foreach (var item in content)
@@ -135,13 +163,13 @@ static class ContentService
   }
 
   // Define an asynchronous static method named ExtractForCompanies
-  async static Task ExtractForCompanies(List<Company> companies)
+  async static Task ExtractForCompanies(List<Company> companies, string? connectionId = null)
   {
     logger.LogInformation("Extracting data for selected companies: {Companies}", 
       string.Join(", ", companies.Select(c => c.Ticker)));
     
     // Pass the selected companies to EdgarService for processing
-    content = await EdgarService.HydrateLookupDataForCompanies(companies);
+    content = await EdgarService.HydrateLookupDataForCompanies(companies, connectionId);
     
     logger.LogInformation("Extracted {ItemCount} items for selected companies", content?.Count ?? 0);
   }

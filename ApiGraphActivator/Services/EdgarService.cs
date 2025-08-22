@@ -134,7 +134,7 @@ public static class EdgarService
     private static HashSet<string> _companiesWithProcessedDocuments = new HashSet<string>();
 
     // Define an asynchronous static method to hydrate lookup data for specific companies
-    async public static Task<List<EdgarExternalItem>> HydrateLookupDataForCompanies(List<Company> companies)
+    async public static Task<List<EdgarExternalItem>> HydrateLookupDataForCompanies(List<Company> companies, string? connectionId = null)
     {
         _logger?.LogInformation("Processing {CompanyCount} companies", companies.Count);
         
@@ -156,7 +156,7 @@ public static class EdgarService
                 cikLookup = company.Cik.ToString();
 
                 string filingJson = await GetCIKFiling().ConfigureAwait(false);
-                var companyFilingDocuments = await GetDocument(filingJson).ConfigureAwait(false);
+                var companyFilingDocuments = await GetDocument(filingJson, connectionId).ConfigureAwait(false);
                 
                 if (companyFilingDocuments != null)
                 {
@@ -225,7 +225,7 @@ public static class EdgarService
     }
 
     // Define an asynchronous static method to get document from filing string
-    async public static Task<List<EdgarExternalItem>> GetDocument(string filingString)
+    async public static Task<List<EdgarExternalItem>> GetDocument(string filingString, string? connectionId = null)
     {
         string retVal = "";
         List<EdgarExternalItem> externalItemData = new List<EdgarExternalItem>();
@@ -435,7 +435,7 @@ public static class EdgarService
                         }
 
                         EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, response);
-                        ContentService.Transform(edgarExternalItem);
+                        ContentService.Transform(edgarExternalItem, connectionId);
                         
                         // Track that this company had a document successfully processed
                         _companiesWithProcessedDocuments.Add(companyName);

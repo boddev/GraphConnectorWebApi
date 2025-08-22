@@ -5,11 +5,13 @@ import CrawlHistory from './components/CrawlHistory';
 import StorageConfig from './components/StorageConfig';
 import CrawlMetricsDashboard from './components/CrawlMetricsDashboard';
 import DataCollectionConfig from './components/DataCollectionConfig';
+import ExternalConnectionManager from './components/ExternalConnectionManager';
 import { fetchCompanyTickers, fetchCrawledCompanies, triggerCrawl, triggerRecrawlAll } from './services/apiService';
 
 function App() {
   const [companies, setCompanies] = useState([]);
   const [selectedCompanies, setSelectedCompanies] = useState([]);
+  const [selectedConnectionId, setSelectedConnectionId] = useState('');
   const [crawledHistory, setCrawledHistory] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -45,6 +47,20 @@ function App() {
     loadData();
   }, []);
 
+  const handleConnectionSelect = async (connectionId) => {
+    console.log('App.js: Connection selected:', connectionId);
+    setSelectedConnectionId(connectionId);
+    
+    // Reload crawled companies for the selected connection
+    try {
+      const crawlHistoryData = await fetchCrawledCompanies(connectionId);
+      setCrawledHistory(crawlHistoryData);
+      console.log('App.js: Loaded crawl history for connection:', connectionId, crawlHistoryData);
+    } catch (error) {
+      console.error('Error loading crawl history for connection:', connectionId, error);
+    }
+  };
+
   const handleSelectionChange = (newSelection) => {
     setSelectedCompanies(newSelection);
   };
@@ -52,9 +68,11 @@ function App() {
   const handleTriggerCrawl = async (companies) => {
     setCrawling(true);
     try {
-      await triggerCrawl(companies);
-      // Refresh crawl history after successful crawl
-      const updatedHistory = await fetchCrawledCompanies();
+      console.log('App.js: handleTriggerCrawl called with companies:', companies);
+      console.log('App.js: selectedConnectionId state:', selectedConnectionId);
+      await triggerCrawl(companies, selectedConnectionId);
+      // Refresh crawl history after successful crawl for the selected connection
+      const updatedHistory = await fetchCrawledCompanies(selectedConnectionId);
       setCrawledHistory(updatedHistory);
     } finally {
       setCrawling(false);
@@ -65,8 +83,8 @@ function App() {
     setCrawling(true);
     try {
       await triggerRecrawlAll();
-      // Refresh crawl history after successful recrawl
-      const updatedHistory = await fetchCrawledCompanies();
+      // Refresh crawl history after successful recrawl for the selected connection
+      const updatedHistory = await fetchCrawledCompanies(selectedConnectionId);
       setCrawledHistory(updatedHistory);
     } finally {
       setCrawling(false);
@@ -145,6 +163,10 @@ function App() {
       <main className="main-content">
         {activeTab === 'crawl' ? (
           <>
+            <ExternalConnectionManager 
+              onConnectionSelect={handleConnectionSelect}
+            />
+            
             <CompanySelector
               companies={companies}
               selectedCompanies={selectedCompanies}

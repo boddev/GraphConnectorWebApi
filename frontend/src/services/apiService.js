@@ -23,9 +23,14 @@ export const fetchCompanyTickers = async () => {
 };
 
 // Service to fetch previously crawled companies
-export const fetchCrawledCompanies = async () => {
+export const fetchCrawledCompanies = async (connectionId = null) => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/crawled-companies`);
+    const url = connectionId 
+      ? `${API_BASE_URL}/crawled-companies?connectionId=${encodeURIComponent(connectionId)}`
+      : `${API_BASE_URL}/crawled-companies`;
+    
+    console.log('API Service: Fetching crawled companies for connection:', connectionId);
+    const response = await axios.get(url);
     return response.data;
   } catch (error) {
     console.error('Error fetching crawled companies:', error);
@@ -33,18 +38,28 @@ export const fetchCrawledCompanies = async () => {
     return {
       lastCrawlDate: null,
       companies: [],
-      totalCompanies: 0
+      totalCompanies: 0,
+      connectionId: connectionId
     };
   }
 };
 
 // Service to trigger the crawl process
-export const triggerCrawl = async (selectedCompanies) => {
+export const triggerCrawl = async (selectedCompanies, connectionId = null) => {
   try {
-    console.log('Triggering crawl for companies:', selectedCompanies);
-    const response = await axios.post(`${API_BASE_URL}/loadcontent`, {
-      companies: selectedCompanies
-    });
+    console.log('API Service: Triggering crawl for companies:', selectedCompanies);
+    console.log('API Service: connectionId parameter:', connectionId);
+    
+    // Use the new endpoint if connectionId is provided
+    const endpoint = connectionId ? '/loadcontent-to-connection' : '/loadcontent';
+    const payload = connectionId 
+      ? { companies: selectedCompanies, connectionId: connectionId }
+      : { companies: selectedCompanies };
+    
+    console.log('API Service: Using endpoint:', endpoint);
+    console.log('API Service: Payload:', JSON.stringify(payload, null, 2));
+      
+    const response = await axios.post(`${API_BASE_URL}${endpoint}`, payload);
     
     console.log('Crawl response:', response.data);
     return response.data;
@@ -232,6 +247,36 @@ export const saveSchedulerConfig = async (config) => {
   } catch (error) {
     console.error('API Service: Error saving scheduler config:', error);
     throw new Error('Failed to save scheduler configuration');
+  }
+};
+
+// External Connection Management Services
+export const fetchExternalConnections = async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/external-connections`);
+    return response.data;
+  } catch (error) {
+    console.error('Error fetching external connections:', error);
+    throw new Error('Failed to fetch external connections');
+  }
+};
+
+export const createExternalConnection = async (connectionData) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/external-connections`, connectionData);
+    return response.data;
+  } catch (error) {
+    console.error('Error creating external connection:', error);
+    throw new Error(error.response?.data || 'Failed to create external connection');
+  }
+};
+
+export const deleteExternalConnection = async (connectionId) => {
+  try {
+    await axios.delete(`${API_BASE_URL}/external-connections/${connectionId}`);
+  } catch (error) {
+    console.error('Error deleting external connection:', error);
+    throw new Error(error.response?.data || 'Failed to delete external connection');
   }
 };
 

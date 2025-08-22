@@ -58,6 +58,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<MCPServerService>();
 builder.Services.AddScoped<CopilotChatService>();
 builder.Services.AddScoped<DocumentSearchService>();
+builder.Services.AddScoped<ExternalConnectionManagerService>();
 
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
@@ -602,6 +603,145 @@ app.MapPost("/scheduler-config", async (HttpContext context) =>
     }
 })
 .WithName("SaveSchedulerConfig")
+.WithOpenApi();
+
+// External Connection Management endpoints
+app.MapGet("/external-connections", async (ExternalConnectionManagerService connectionManager) =>
+{
+    try
+    {
+        var connections = await connectionManager.GetConnectionsAsync();
+        return Results.Ok(connections);
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error getting external connections: {Error}", ex.Message);
+        return Results.StatusCode(500);
+    }
+})
+.WithName("GetExternalConnections")
+.WithOpenApi();
+
+app.MapPost("/external-connections", async (CreateExternalConnectionRequest request, ExternalConnectionManagerService connectionManager) =>
+{
+    try
+    {
+        if (string.IsNullOrWhiteSpace(request.Id) || string.IsNullOrWhiteSpace(request.Name))
+        {
+            return Results.BadRequest("Connection ID and Name are required");
+        }
+
+        var result = await connectionManager.CreateConnectionAsync(request);
+        if (result.Success)
+        {
+            staticServiceLogger.LogInformation("Successfully created external connection: {ConnectionId}", request.Id);
+            return Results.Ok(result.Result);
+        }
+        else
+        {
+            staticServiceLogger.LogError("Failed to create external connection: {Error}", result.ErrorMessage);
+            return Results.BadRequest(result.ErrorMessage);
+        }
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error creating external connection: {Error}", ex.Message);
+        return Results.StatusCode(500);
+    }
+})
+.WithName("CreateExternalConnection")
+.WithOpenApi();
+
+app.MapDelete("/external-connections/{connectionId}", async (string connectionId, ExternalConnectionManagerService connectionManager) =>
+{
+    try
+    {
+        var result = await connectionManager.DeleteConnectionAsync(connectionId);
+        if (result.Success)
+        {
+            staticServiceLogger.LogInformation("Successfully deleted external connection: {ConnectionId}", connectionId);
+            return Results.Ok();
+        }
+        else
+        {
+            staticServiceLogger.LogError("Failed to delete external connection: {Error}", result.ErrorMessage);
+            return Results.BadRequest(result.ErrorMessage);
+        }
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error deleting external connection: {Error}", ex.Message);
+        return Results.StatusCode(500);
+    }
+})
+.WithName("DeleteExternalConnection")
+.WithOpenApi();
+
+// Enhanced loadcontent endpoint with connection selection
+app.MapPost("/loadcontent-to-connection", async (HttpContext context, BackgroundTaskQueue taskQueue) =>
+{
+    try
+    {
+        string requestBody = await new StreamReader(context.Request.Body).ReadToEndAsync();
+        staticServiceLogger.LogInformation("Received loadcontent-to-connection request: {RequestBody}", requestBody);
+
+        // Use the configured JSON options for deserialization
+        var jsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+        var request = JsonSerializer.Deserialize<LoadContentToConnectionRequest>(requestBody, jsonOptions);
+        
+        staticServiceLogger.LogInformation("Deserialized request - Companies: {CompanyCount}, ConnectionId: {ConnectionId}", 
+            request?.Companies?.Count ?? -1, request?.ConnectionId ?? "null");
+        
+        if (request?.Companies == null || !request.Companies.Any())
+        {
+            staticServiceLogger.LogWarning("No companies provided in loadcontent-to-connection request");
+            return Results.BadRequest("At least one company must be provided");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.ConnectionId))
+        {
+            staticServiceLogger.LogWarning("No connection ID provided in loadcontent-to-connection request");
+            return Results.BadRequest("Connection ID is required");
+        }
+
+        staticServiceLogger.LogInformation("Queuing content loading for {CompanyCount} companies to connection: {ConnectionId}", 
+            request.Companies.Count, request.ConnectionId);
+        
+        // Queue the work item
+        taskQueue.QueueBackgroundWorkItemAsync(async token =>
+        {
+            staticServiceLogger.LogInformation("Starting background content loading for {CompanyCount} companies to connection: {ConnectionId}", 
+                request.Companies.Count, request.ConnectionId);
+            
+            try
+            {
+                await ContentService.LoadContentForCompanies(request.Companies, request.ConnectionId);
+                staticServiceLogger.LogInformation("Successfully completed content loading for {CompanyCount} companies to connection: {ConnectionId}", 
+                    request.Companies.Count, request.ConnectionId);
+            }
+            catch (Exception ex)
+            {
+                staticServiceLogger.LogError(ex, "Error in background content loading task for connection: {ConnectionId}", request.ConnectionId);
+            }
+        });
+        
+        return Results.Ok(new { 
+            message = "Content loading started in background", 
+            companyCount = request.Companies.Count,
+            connectionId = request.ConnectionId 
+        });
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError(ex, "Error in loadcontent-to-connection endpoint");
+        return Results.StatusCode(500);
+    }
+})
+.WithName("LoadContentToConnection")
 .WithOpenApi();
 
 // Add MCP Server endpoint
