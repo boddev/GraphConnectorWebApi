@@ -48,7 +48,7 @@ public class AzureStorageService : ICrawlStorageService
         }
     }
 
-    public async Task TrackDocumentAsync(string companyName, string form, DateTime filingDate, string url)
+    public async Task TrackDocumentAsync(string companyName, string form, DateTime filingDate, string url, string? connectionId = null)
     {
         if (_tableClient == null)
         {
@@ -60,6 +60,10 @@ public class AzureStorageService : ICrawlStorageService
         {
             // Check if document already exists
             string filter = $"Url eq '{url}'";
+            if (!string.IsNullOrWhiteSpace(connectionId))
+            {
+                filter += $" and ConnectionId eq '{connectionId}'";
+            }
             var existingResults = _tableClient.Query<TableEntity>(filter).ToList();
             
             if (existingResults.Count > 0)
@@ -84,7 +88,8 @@ public class AzureStorageService : ICrawlStorageService
                 ["Form"] = form,
                 ["FilingDate"] = filingDate.ToShortDateString(),
                 ["Url"] = url,
-                ["Processed"] = false
+                ["Processed"] = false,
+                ["ConnectionId"] = connectionId ?? ""
             };
 
             await _tableClient.AddEntityAsync(newEntity);
@@ -96,7 +101,7 @@ public class AzureStorageService : ICrawlStorageService
         }
     }
 
-    public async Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null)
+    public async Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null, string? connectionId = null)
     {
         if (_tableClient == null)
         {
@@ -126,7 +131,7 @@ public class AzureStorageService : ICrawlStorageService
         }
     }
 
-    public async Task<List<DocumentInfo>> GetUnprocessedAsync()
+    public async Task<List<DocumentInfo>> GetUnprocessedAsync(string? connectionId = null)
     {
         if (_tableClient == null)
         {
@@ -159,7 +164,7 @@ public class AzureStorageService : ICrawlStorageService
         }
     }
 
-    public async Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null)
+    public async Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null, string? connectionId = null)
     {
         if (_tableClient == null)
         {
@@ -205,7 +210,7 @@ public class AzureStorageService : ICrawlStorageService
         }
     }
 
-    public async Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null)
+    public async Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null, string? connectionId = null)
     {
         if (_tableClient == null)
         {
@@ -241,7 +246,7 @@ public class AzureStorageService : ICrawlStorageService
         }
     }
 
-    public async Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync()
+    public async Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync(string? connectionId = null)
     {
         if (_tableClient == null)
         {
@@ -306,7 +311,7 @@ public class AzureStorageService : ICrawlStorageService
         }
     }
 
-    public async Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName)
+    public async Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName, string? connectionId = null)
     {
         if (_tableClient == null)
         {

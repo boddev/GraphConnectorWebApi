@@ -22,6 +22,14 @@ public class LocalFileStorageService : ICrawlStorageService
         };
     }
 
+    private string GetDocumentsFilePath(string? connectionId)
+    {
+        if (string.IsNullOrWhiteSpace(connectionId))
+            return _documentsFile; // Global file for backward compatibility
+        
+        return Path.Combine(_dataPath, $"tracked-documents-{connectionId}.json");
+    }
+
     public async Task InitializeAsync()
     {
         try
@@ -45,11 +53,11 @@ public class LocalFileStorageService : ICrawlStorageService
         }
     }
 
-    public async Task TrackDocumentAsync(string companyName, string form, DateTime filingDate, string url)
+    public async Task TrackDocumentAsync(string companyName, string form, DateTime filingDate, string url, string? connectionId = null)
     {
         try
         {
-            var documents = await LoadDocumentsAsync();
+            var documents = await LoadDocumentsAsync(connectionId);
             
             // Check if document already exists
             var existingDoc = documents.FirstOrDefault(d => d.Url == url);
@@ -61,7 +69,7 @@ public class LocalFileStorageService : ICrawlStorageService
                 existingDoc.Success = true; // Reset to default
                 existingDoc.ErrorMessage = null;
                 _logger.LogTrace("Reset existing document for recrawl: {Url}", url);
-                await SaveDocumentsAsync(documents);
+                await SaveDocumentsAsync(documents, connectionId);
                 return;
             }
 
@@ -72,12 +80,13 @@ public class LocalFileStorageService : ICrawlStorageService
                 Form = form,
                 FilingDate = filingDate,
                 Url = url,
-                Processed = false
+                Processed = false,
+                ConnectionId = connectionId ?? ""
             };
 
             documents.Add(newDoc);
-            await SaveDocumentsAsync(documents);
-            _logger.LogTrace("Tracked new document: {CompanyName} {Form} {FilingDate}", companyName, form, filingDate);
+            await SaveDocumentsAsync(documents, connectionId);
+            _logger.LogTrace("Tracked new document: {CompanyName} {Form} {FilingDate} for connection {ConnectionId}", companyName, form, filingDate, connectionId ?? "global");
         }
         catch (Exception ex)
         {
@@ -85,11 +94,11 @@ public class LocalFileStorageService : ICrawlStorageService
         }
     }
 
-    public async Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null)
+    public async Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null, string? connectionId = null)
     {
         try
         {
-            var documents = await LoadDocumentsAsync();
+            var documents = await LoadDocumentsAsync(connectionId);
             var document = documents.FirstOrDefault(d => d.Url == url);
             
             if (document != null)
@@ -98,8 +107,8 @@ public class LocalFileStorageService : ICrawlStorageService
                 document.ProcessedDate = DateTime.UtcNow;
                 document.Success = success;
                 document.ErrorMessage = errorMessage;
-                await SaveDocumentsAsync(documents);
-                _logger.LogTrace("Marked document as processed: {Url} - Success: {Success}", url, success);
+                await SaveDocumentsAsync(documents, connectionId);
+                _logger.LogTrace("Marked document as processed: {Url} - Success: {Success} for connection {ConnectionId}", url, success, connectionId ?? "global");
             }
         }
         catch (Exception ex)
@@ -108,25 +117,25 @@ public class LocalFileStorageService : ICrawlStorageService
         }
     }
 
-    public async Task<List<DocumentInfo>> GetUnprocessedAsync()
+    public async Task<List<DocumentInfo>> GetUnprocessedAsync(string? connectionId = null)
     {
         try
         {
-            var documents = await LoadDocumentsAsync();
+            var documents = await LoadDocumentsAsync(connectionId);
             return documents.Where(d => !d.Processed).ToList();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get unprocessed documents");
+            _logger.LogError(ex, "Failed to get unprocessed documents for connection: {ConnectionId}", connectionId ?? "global");
             return new List<DocumentInfo>();
         }
     }
 
-    public async Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null)
+    public async Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null, string? connectionId = null)
     {
         try
         {
-            var documents = await LoadDocumentsAsync();
+            var documents = await LoadDocumentsAsync(connectionId);
             
             if (!string.IsNullOrEmpty(companyName))
             {
@@ -148,16 +157,16 @@ public class LocalFileStorageService : ICrawlStorageService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get crawl metrics for company: {Company}", companyName);
+            _logger.LogError(ex, "Failed to get crawl metrics for company: {Company} and connection: {ConnectionId}", companyName, connectionId ?? "global");
             throw;
         }
     }
 
-    public async Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null)
+    public async Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null, string? connectionId = null)
     {
         try
         {
-            var documents = await LoadDocumentsAsync();
+            var documents = await LoadDocumentsAsync(connectionId);
             var errorDocs = documents.Where(d => d.Processed && !d.Success && !string.IsNullOrEmpty(d.ErrorMessage));
             
             if (!string.IsNullOrEmpty(companyName))
@@ -176,16 +185,16 @@ public class LocalFileStorageService : ICrawlStorageService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get processing errors for company: {Company}", companyName);
+            _logger.LogError(ex, "Failed to get processing errors for company: {Company} and connection: {ConnectionId}", companyName, connectionId ?? "global");
             throw;
         }
     }
 
-    public async Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync()
+    public async Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync(string? connectionId = null)
     {
         try
         {
-            var documents = await LoadDocumentsAsync();
+            var documents = await LoadDocumentsAsync(connectionId);
             var yearlyMetrics = new Dictionary<int, YearlyMetrics>();
 
             foreach (var doc in documents)
@@ -222,16 +231,16 @@ public class LocalFileStorageService : ICrawlStorageService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get yearly metrics");
+            _logger.LogError(ex, "Failed to get yearly metrics for connection: {ConnectionId}", connectionId ?? "global");
             throw;
         }
     }
 
-    public async Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName)
+    public async Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName, string? connectionId = null)
     {
         try
         {
-            var documents = await LoadDocumentsAsync();
+            var documents = await LoadDocumentsAsync(connectionId);
             var companyDocuments = documents.Where(d => d.CompanyName.Equals(companyName, StringComparison.OrdinalIgnoreCase));
             var yearlyMetrics = new Dictionary<int, YearlyMetrics>();
 
@@ -269,7 +278,7 @@ public class LocalFileStorageService : ICrawlStorageService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get company yearly metrics for: {Company}", companyName);
+            _logger.LogError(ex, "Failed to get company yearly metrics for: {Company} and connection: {ConnectionId}", companyName, connectionId ?? "global");
             throw;
         }
     }
@@ -299,33 +308,35 @@ public class LocalFileStorageService : ICrawlStorageService
 
     public string GetStorageType() => "Local File Storage";
 
-    private async Task<List<DocumentInfo>> LoadDocumentsAsync()
+    private async Task<List<DocumentInfo>> LoadDocumentsAsync(string? connectionId = null)
     {
         try
         {
-            if (!File.Exists(_documentsFile))
+            var filePath = GetDocumentsFilePath(connectionId);
+            if (!File.Exists(filePath))
                 return new List<DocumentInfo>();
 
-            var json = await File.ReadAllTextAsync(_documentsFile);
+            var json = await File.ReadAllTextAsync(filePath);
             return JsonSerializer.Deserialize<List<DocumentInfo>>(json, _jsonOptions) ?? new List<DocumentInfo>();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to load documents from file");
+            _logger.LogError(ex, "Failed to load documents from file for connection: {ConnectionId}", connectionId ?? "global");
             return new List<DocumentInfo>();
         }
     }
 
-    private async Task SaveDocumentsAsync(List<DocumentInfo> documents)
+    private async Task SaveDocumentsAsync(List<DocumentInfo> documents, string? connectionId = null)
     {
         try
         {
+            var filePath = GetDocumentsFilePath(connectionId);
             var json = JsonSerializer.Serialize(documents, _jsonOptions);
-            await File.WriteAllTextAsync(_documentsFile, json);
+            await File.WriteAllTextAsync(filePath, json);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to save documents to file");
+            _logger.LogError(ex, "Failed to save documents to file for connection: {ConnectionId}", connectionId ?? "global");
             throw;
         }
     }

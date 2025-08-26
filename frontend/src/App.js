@@ -82,7 +82,8 @@ function App() {
   const handleTriggerRecrawlAll = async () => {
     setCrawling(true);
     try {
-      await triggerRecrawlAll();
+      console.log('App.js: handleTriggerRecrawlAll called with selectedConnectionId:', selectedConnectionId);
+      await triggerRecrawlAll(selectedConnectionId);
       // Refresh crawl history after successful recrawl for the selected connection
       const updatedHistory = await fetchCrawledCompanies(selectedConnectionId);
       setCrawledHistory(updatedHistory);

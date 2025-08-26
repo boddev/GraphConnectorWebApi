@@ -19,7 +19,7 @@ public class InMemoryStorageService : ICrawlStorageService
         _logger.LogInformation("In-memory storage service initialized");
     }
 
-    public async Task TrackDocumentAsync(string companyName, string form, DateTime filingDate, string url)
+    public async Task TrackDocumentAsync(string companyName, string form, DateTime filingDate, string url, string? connectionId = null)
     {
         await Task.Run(() =>
         {
@@ -45,7 +45,8 @@ public class InMemoryStorageService : ICrawlStorageService
                     Form = form,
                     FilingDate = filingDate,
                     Url = url,
-                    Processed = false
+                    Processed = false,
+                    ConnectionId = connectionId ?? ""
                 };
 
                 _documents.Add(document);
@@ -54,7 +55,7 @@ public class InMemoryStorageService : ICrawlStorageService
         });
     }
 
-    public async Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null)
+    public async Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null, string? connectionId = null)
     {
         await Task.Run(() =>
         {
@@ -77,7 +78,7 @@ public class InMemoryStorageService : ICrawlStorageService
         });
     }
 
-    public async Task<List<DocumentInfo>> GetUnprocessedAsync()
+    public async Task<List<DocumentInfo>> GetUnprocessedAsync(string? connectionId = null)
     {
         return await Task.Run(() =>
         {
@@ -88,7 +89,7 @@ public class InMemoryStorageService : ICrawlStorageService
         });
     }
 
-    public async Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null)
+    public async Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null, string? connectionId = null)
     {
         return await Task.Run(() =>
         {
@@ -117,7 +118,7 @@ public class InMemoryStorageService : ICrawlStorageService
         });
     }
 
-    public async Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null)
+    public async Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null, string? connectionId = null)
     {
         return await Task.Run(() =>
         {
@@ -142,7 +143,7 @@ public class InMemoryStorageService : ICrawlStorageService
         });
     }
 
-    public async Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync()
+    public async Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync(string? connectionId = null)
     {
         return await Task.Run(() =>
         {
@@ -185,7 +186,7 @@ public class InMemoryStorageService : ICrawlStorageService
         });
     }
 
-    public async Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName)
+    public async Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName, string? connectionId = null)
     {
         return await Task.Run(() =>
         {

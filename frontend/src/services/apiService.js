@@ -70,12 +70,17 @@ export const triggerCrawl = async (selectedCompanies, connectionId = null) => {
 };
 
 // Service to trigger recrawl of all previously crawled companies
-export const triggerRecrawlAll = async () => {
+export const triggerRecrawlAll = async (connectionId = null) => {
   try {
     console.log('API Service: Starting triggerRecrawlAll request');
+    console.log('API Service: connectionId parameter:', connectionId);
     console.log('API Service: Making POST request to:', `${API_BASE_URL}/recrawl-all`);
     
-    const response = await axios.post(`${API_BASE_URL}/recrawl-all`);
+    // Send connectionId in the request body if provided
+    const payload = connectionId ? { connectionId } : {};
+    console.log('API Service: Recrawl payload:', JSON.stringify(payload, null, 2));
+    
+    const response = await axios.post(`${API_BASE_URL}/recrawl-all`, payload);
     
     console.log('API Service: Recrawl response received:', response.data);
     console.log('API Service: Response status:', response.status);

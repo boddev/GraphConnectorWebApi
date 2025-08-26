@@ -5,13 +5,13 @@ namespace ApiGraphActivator.Services;
 public interface ICrawlStorageService
 {
     Task InitializeAsync();
-    Task TrackDocumentAsync(string companyName, string form, DateTime filingDate, string url);
-    Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null);
-    Task<List<DocumentInfo>> GetUnprocessedAsync();
-    Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null);
-    Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null);
-    Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync();
-    Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName);
+    Task TrackDocumentAsync(string companyName, string form, DateTime filingDate, string url, string? connectionId = null);
+    Task MarkProcessedAsync(string url, bool success = true, string? errorMessage = null, string? connectionId = null);
+    Task<List<DocumentInfo>> GetUnprocessedAsync(string? connectionId = null);
+    Task<CrawlMetrics> GetCrawlMetricsAsync(string? companyName = null, string? connectionId = null);
+    Task<List<ProcessingError>> GetProcessingErrorsAsync(string? companyName = null, string? connectionId = null);
+    Task<Dictionary<int, YearlyMetrics>> GetYearlyMetricsAsync(string? connectionId = null);
+    Task<Dictionary<int, YearlyMetrics>> GetCompanyYearlyMetricsAsync(string companyName, string? connectionId = null);
     Task<bool> IsHealthyAsync();
     string GetStorageType();
 }
@@ -27,6 +27,7 @@ public class DocumentInfo
     public bool Success { get; set; } = true;
     public string? ErrorMessage { get; set; }
     public string Id { get; set; } = "";
+    public string ConnectionId { get; set; } = "";
 }
 
 public class CrawlMetrics

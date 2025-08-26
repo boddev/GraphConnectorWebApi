@@ -11,4 +11,5 @@ public class Company
 public class CrawlRequest
 {
     public List<Company> Companies { get; set; } = new();
+    public string ConnectionId { get; set; } = "";
 }

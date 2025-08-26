@@ -186,28 +186,37 @@ app.MapPost("/loadcontent", async (HttpContext context, BackgroundTaskQueue task
         {
             staticServiceLogger.LogInformation("Loading content for {CompanyCount} companies", crawlRequest.Companies.Count);
             
-            // Save companies to config file for persistence
-            await ConfigurationService.SaveCrawledCompaniesAsync(crawlRequest.Companies);
+            // Use connectionId from request or default
+            var targetConnectionId = !string.IsNullOrEmpty(crawlRequest.ConnectionId) 
+                ? crawlRequest.ConnectionId 
+                : null; // Will default to main connection
+            
+            staticServiceLogger.LogInformation("Target connection ID: {ConnectionId}", targetConnectionId ?? "default");
+            
+            // Save companies to config file for persistence with connection ID
+            await ConfigurationService.SaveCrawledCompaniesAsync(crawlRequest.Companies, targetConnectionId);
             
             staticServiceLogger.LogInformation("Queueing background task for crawl");
             
             // Queue the long-running task with selected companies
             await taskQueue.QueueBackgroundWorkItemAsync(async token =>
             {
-                staticServiceLogger.LogInformation("Background task started for {CompanyCount} companies", crawlRequest.Companies.Count);
-                await ContentService.LoadContentForCompanies(crawlRequest.Companies);
-                staticServiceLogger.LogInformation("Background task completed for {CompanyCount} companies", crawlRequest.Companies.Count);
+                staticServiceLogger.LogInformation("Background task started for {CompanyCount} companies in connection {ConnectionId}", 
+                    crawlRequest.Companies.Count, targetConnectionId ?? "default");
+                await ContentService.LoadContentForCompanies(crawlRequest.Companies, targetConnectionId);
+                staticServiceLogger.LogInformation("Background task completed for {CompanyCount} companies in connection {ConnectionId}", 
+                    crawlRequest.Companies.Count, targetConnectionId ?? "default");
             });
             
             staticServiceLogger.LogInformation("Background task queued successfully");
         }
         else
         {
-            // Queue the original long-running task
-            await taskQueue.QueueBackgroundWorkItemAsync(async token =>
-            {
-                await ContentService.LoadContent();
-            });
+            // Return error instead of performing full crawl
+            staticServiceLogger.LogWarning("No companies specified in crawl request");
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("No companies specified for crawl. Please select companies to crawl or use the /recrawl-all endpoint for previously crawled companies.");
+            return;
         }
 
         // Return a response immediately
@@ -230,25 +239,50 @@ app.MapPost("/recrawl-all", async (HttpContext context, BackgroundTaskQueue task
     {
         staticServiceLogger.LogInformation("Received recrawl-all request");
         
-        // Load previously crawled companies
-        var config = await ConfigurationService.LoadCrawledCompaniesAsync();
+        using var reader = new StreamReader(context.Request.Body);
+        var requestBody = await reader.ReadToEndAsync();
+        
+        // Parse connection ID if provided
+        string? connectionId = null;
+        if (!string.IsNullOrWhiteSpace(requestBody))
+        {
+            try
+            {
+                var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+                var request = JsonSerializer.Deserialize<Dictionary<string, string>>(requestBody, options);
+                connectionId = request?.GetValueOrDefault("connectionId");
+            }
+            catch
+            {
+                // Treat as plain connection ID string if not JSON
+                connectionId = requestBody.Trim();
+            }
+        }
+        
+        staticServiceLogger.LogInformation("Recrawling for connection: {ConnectionId}", connectionId ?? "default");
+        
+        // Load previously crawled companies for the specific connection
+        var config = await ConfigurationService.LoadCrawledCompaniesAsync(connectionId);
         
         if (config?.Companies?.Any() != true)
         {
-            staticServiceLogger.LogWarning("No previously crawled companies found");
+            staticServiceLogger.LogWarning("No previously crawled companies found for connection {ConnectionId}", connectionId ?? "default");
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
-            await context.Response.WriteAsync("No previously crawled companies found. Please crawl companies first.");
+            await context.Response.WriteAsync($"No previously crawled companies found for connection {connectionId ?? "default"}. Please crawl companies first.");
             return;
         }
 
-        staticServiceLogger.LogInformation("Starting recrawl for {CompanyCount} previously crawled companies", config.Companies.Count);
+        staticServiceLogger.LogInformation("Starting recrawl for {CompanyCount} previously crawled companies in connection {ConnectionId}", 
+            config.Companies.Count, connectionId ?? "default");
         
         // Queue the background task with previously crawled companies
         await taskQueue.QueueBackgroundWorkItemAsync(async token =>
         {
-            staticServiceLogger.LogInformation("Background recrawl task started for {CompanyCount} companies", config.Companies.Count);
-            await ContentService.LoadContentForCompanies(config.Companies);
-            staticServiceLogger.LogInformation("Background recrawl task completed for {CompanyCount} companies", config.Companies.Count);
+            staticServiceLogger.LogInformation("Background recrawl task started for {CompanyCount} companies in connection {ConnectionId}", 
+                config.Companies.Count, connectionId ?? "default");
+            await ContentService.LoadContentForCompanies(config.Companies, connectionId);
+            staticServiceLogger.LogInformation("Background recrawl task completed for {CompanyCount} companies in connection {ConnectionId}", 
+                config.Companies.Count, connectionId ?? "default");
         });
         
         staticServiceLogger.LogInformation("Background recrawl task queued successfully");
@@ -265,6 +299,65 @@ app.MapPost("/recrawl-all", async (HttpContext context, BackgroundTaskQueue task
     }
 })
 .WithName("RecrawlAll")
+.WithOpenApi();
+
+app.MapPost("/full-crawl", async (HttpContext context, BackgroundTaskQueue taskQueue) =>
+{
+    try
+    {
+        staticServiceLogger.LogInformation("Received explicit full-crawl request");
+        
+        using var reader = new StreamReader(context.Request.Body);
+        var requestBody = await reader.ReadToEndAsync();
+        
+        // Parse connection ID if provided
+        string? connectionId = null;
+        if (!string.IsNullOrWhiteSpace(requestBody))
+        {
+            try
+            {
+                var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+                var request = JsonSerializer.Deserialize<Dictionary<string, string>>(requestBody, options);
+                connectionId = request?.GetValueOrDefault("connectionId");
+            }
+            catch
+            {
+                // Treat as plain connection ID string if not JSON
+                connectionId = requestBody.Trim();
+            }
+        }
+        
+        staticServiceLogger.LogInformation("Starting explicit full crawl for connection: {ConnectionId}", connectionId ?? "default");
+        
+        // Queue the full crawl task
+        await taskQueue.QueueBackgroundWorkItemAsync(async token =>
+        {
+            staticServiceLogger.LogInformation("Background full crawl task started for connection: {ConnectionId}", connectionId ?? "default");
+            try
+            {
+                await ContentService.LoadContent(connectionId);
+                staticServiceLogger.LogInformation("Background full crawl task completed for connection: {ConnectionId}", connectionId ?? "default");
+            }
+            catch (Exception ex)
+            {
+                staticServiceLogger.LogError(ex, "Error in background full crawl task for connection: {ConnectionId}", connectionId ?? "default");
+            }
+        });
+        
+        staticServiceLogger.LogInformation("Background full crawl task queued successfully");
+        
+        // Return a response immediately
+        context.Response.StatusCode = StatusCodes.Status202Accepted;
+        await context.Response.WriteAsync($"Full crawl started successfully for connection: {connectionId ?? "default"}");
+    }
+    catch (Exception ex)
+    {
+        staticServiceLogger.LogError("Error starting full crawl: {Message}", ex.Message);
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        await context.Response.WriteAsync($"Error starting full crawl: {ex.Message}");
+    }
+})
+.WithName("FullCrawl")
 .WithOpenApi();
 
 app.MapGet("/companies", async (HttpContext context) =>
@@ -296,15 +389,19 @@ app.MapGet("/crawled-companies", async (HttpContext context) =>
 {
     try
     {
-        staticServiceLogger.LogInformation("Fetching previously crawled companies");
-        var config = await ConfigurationService.LoadCrawledCompaniesAsync();
+        // Get connectionId from query parameter
+        string? connectionId = context.Request.Query["connectionId"].FirstOrDefault();
+        
+        staticServiceLogger.LogInformation("Fetching previously crawled companies for connection: {ConnectionId}", connectionId ?? "default");
+        var config = await ConfigurationService.LoadCrawledCompaniesAsync(connectionId);
         
         if (config == null)
         {
             var emptyResult = new { 
                 lastCrawlDate = (DateTime?)null,
                 companies = new List<Company>(),
-                totalCompanies = 0
+                totalCompanies = 0,
+                connectionId = connectionId ?? "default"
             };
             
             context.Response.ContentType = "application/json";
@@ -315,7 +412,8 @@ app.MapGet("/crawled-companies", async (HttpContext context) =>
         var result = new {
             lastCrawlDate = config.LastCrawlDate,
             companies = config.Companies,
-            totalCompanies = config.TotalCompanies
+            totalCompanies = config.TotalCompanies,
+            connectionId = connectionId ?? "default"
         };
         
         context.Response.ContentType = "application/json";
@@ -712,7 +810,7 @@ app.MapPost("/loadcontent-to-connection", async (HttpContext context, Background
             request.Companies.Count, request.ConnectionId);
         
         // Queue the work item
-        taskQueue.QueueBackgroundWorkItemAsync(async token =>
+        await taskQueue.QueueBackgroundWorkItemAsync(async token =>
         {
             staticServiceLogger.LogInformation("Starting background content loading for {CompanyCount} companies to connection: {ConnectionId}", 
                 request.Companies.Count, request.ConnectionId);

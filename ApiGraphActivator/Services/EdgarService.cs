@@ -170,8 +170,8 @@ public static class EdgarService
             if (_companiesWithProcessedDocuments.Any())
             {
                 var processedCompanies = companies.Where(c => _companiesWithProcessedDocuments.Contains(c.Title)).ToList();
-                await ConfigurationService.UpdateCrawledCompanyTimestampsAsync(processedCompanies);
-                _logger?.LogInformation("Updated timestamps for {ProcessedCount} companies that had documents processed", processedCompanies.Count);
+                await ConfigurationService.UpdateCrawledCompanyTimestampsAsync(processedCompanies, connectionId);
+                _logger?.LogInformation("Updated timestamps for {ProcessedCount} companies that had documents processed in connection {ConnectionId}", processedCompanies.Count, connectionId ?? "default");
             }
         }
         catch (Exception ex)
@@ -275,7 +275,7 @@ public static class EdgarService
                     try
                     {
                         _logger?.LogTrace($"Checking if exists: CompanyName={companyName}, Form={form}, FilingDate={theDate}");
-                        await InsertItemIfNotExists(companyName, form, theDate, urlField).ConfigureAwait(false);
+                        await InsertItemIfNotExists(companyName, form, theDate, urlField, connectionId).ConfigureAwait(false);
                     }
                     catch (Exception ex)
                     {
@@ -288,13 +288,23 @@ public static class EdgarService
                 }
             }
 
-            _logger.LogTrace($"beginning unprocessed data");
-            var unprocessedData = await QueryUnprocessedData().ConfigureAwait(false);
+            _logger.LogTrace($"beginning unprocessed data for company: {companyName}");
+            var unprocessedData = await QueryUnprocessedData(connectionId).ConfigureAwait(false);
             foreach (var entity in unprocessedData)
             {
                 try
                 {
-                    string companyName = entity.GetString("CompanyName");
+                    string entityCompanyName = entity.GetString("CompanyName");
+                    
+                    // Skip documents that don't belong to the current company being processed
+                    if (!string.Equals(entityCompanyName, companyName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger?.LogTrace($"Skipping document for different company: {entityCompanyName} (processing: {companyName})");
+                        continue;
+                    }
+                    
+                    // Use the entity company name for the rest of the processing
+                    string documentCompanyName = entityCompanyName;
                     var form = entity.GetString("Form");
                     DateTime? filingDate = DateTime.Parse(entity.GetString("FilingDate"));
                     var url = entity.GetString("Url");
@@ -306,9 +316,9 @@ public static class EdgarService
                     var includedFormTypes = await DataCollectionConfigurationService.GetIncludedFormTypesAsync();
                     if (includedFormTypes.Any(formType => form.ToUpper().Contains(formType.ToUpper())))
                     {
-                        //itemId = $"{companyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
-                        companyField = companyName;
-                        titleField = $"{companyName} {form} {filingDate.Value.ToShortDateString().Replace("/", "-")}";
+                        //itemId = $"{documentCompanyName}_Form{form}_{filingDate.Value.ToShortDateString()}".Replace("/", "_").Replace(" ", "_").Replace(".", "");
+                        companyField = documentCompanyName;
+                        titleField = $"{documentCompanyName} {form} {filingDate.Value.ToShortDateString().Replace("/", "-")}";
                         reportDateField = filingDate;
                         formField = form;
                         urlField = url;
@@ -438,7 +448,7 @@ public static class EdgarService
                         ContentService.Transform(edgarExternalItem, connectionId);
                         
                         // Track that this company had a document successfully processed
-                        _companiesWithProcessedDocuments.Add(companyName);
+                        _companiesWithProcessedDocuments.Add(documentCompanyName);
                         
                         // Mark document as successfully processed
                         await UpdateProcessedItem(urlField, true, null);
@@ -463,7 +473,7 @@ public static class EdgarService
     }
 
     // Define a method to insert an item if it does not exist in the table
-    public static async Task InsertItemIfNotExists(string companyName, string form, DateTime filingDate, string url)
+    public static async Task InsertItemIfNotExists(string companyName, string form, DateTime filingDate, string url, string? connectionId = null)
     {
         // Check if the form is one of the configured types
         var includedFormTypes = await DataCollectionConfigurationService.GetIncludedFormTypesAsync();
@@ -478,7 +488,7 @@ public static class EdgarService
             // Use new storage service if available, otherwise fall back to old Azure Table Storage
             if (_storageService != null)
             {
-                await _storageService.TrackDocumentAsync(companyName, form, filingDate, url);
+                await _storageService.TrackDocumentAsync(companyName, form, filingDate, url, connectionId);
                 _logger?.LogTrace($"Tracked document via storage service: CompanyName={companyName}, Form={form}, FilingDate={filingDate}");
             }
             else
@@ -573,15 +583,15 @@ public static class EdgarService
     }
 
     // Define a method to query unprocessed data from the table
-    public static async Task<List<TableEntity>> QueryUnprocessedData()
+    public static async Task<List<TableEntity>> QueryUnprocessedData(string? connectionId = null)
     {
         try
         {
             // Use new storage service if available
             if (_storageService != null)
             {
-                var unprocessedDocuments = await _storageService.GetUnprocessedAsync();
-                _logger?.LogTrace($"Found {unprocessedDocuments.Count} unprocessed documents via storage service");
+                var unprocessedDocuments = await _storageService.GetUnprocessedAsync(connectionId);
+                _logger?.LogTrace($"Found {unprocessedDocuments.Count} unprocessed documents via storage service for connection {connectionId ?? "default"}");
                 
                 // Convert to TableEntity format for compatibility with existing code
                 return unprocessedDocuments.Select(doc => new TableEntity
@@ -604,11 +614,12 @@ public static class EdgarService
                     return new List<TableEntity>();
                 }
 
-                // Define the query filter
+                // Define the query filter - for legacy storage, we can't filter by connection
+                // so we'll return all unprocessed and let calling code filter if needed
                 string filter = "Processed eq false";
                 // Execute the query
                 var results = await Task.Run(() => _tableClient.Query<TableEntity>(filter).ToList());
-                _logger?.LogTrace($"Found {results.Count} unprocessed documents via Azure Table Storage");
+                _logger?.LogTrace($"Found {results.Count} unprocessed documents via Azure Table Storage (legacy - no connection filtering)");
                 return results;
             }
         }

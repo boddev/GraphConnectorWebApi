@@ -110,7 +110,9 @@ The solution exposes several REST API endpoints:
 | `/` | GET | Health check endpoint |
 | `/grantPermissions` | POST | Initiates admin consent flow for Graph permissions |
 | `/provisionconnection` | POST | Creates and configures the Graph connector |
-| `/loadcontent` | POST | Triggers content extraction and indexing (background process) |
+| `/loadcontent` | POST | Triggers content extraction for selected companies (background process) |
+| `/full-crawl` | POST | **Explicit full crawl** - processes ALL companies in Azure Table Storage |
+| `/recrawl-all` | POST | Re-processes previously crawled companies |
 
 ## Prerequisites
 
@@ -293,20 +295,49 @@ This operation:
 
 ### Step 3: Load Content
 
-Trigger the content extraction and indexing process:
-
+#### Option A: Load Content for Selected Companies (Recommended)
 ```http
 POST /loadcontent
 Content-Type: application/json
 
-"your-tenant-id"
+{
+  "companies": [
+    {
+      "cik": 320193,
+      "ticker": "AAPL", 
+      "title": "Apple Inc."
+    },
+    {
+      "cik": 789019,
+      "ticker": "MSFT",
+      "title": "Microsoft Corporation"  
+    }
+  ]
+}
 ```
 
-This starts a background process that:
-- Extracts SEC filings from the EDGAR database
-- Processes and enriches content
-- Indexes items into Microsoft Graph
-- Returns HTTP 202 (Accepted) immediately
+#### Option B: Explicit Full Crawl (Use with Caution)
+```http
+POST /full-crawl
+Content-Type: application/json
+
+{
+  "connectionId": "optional-connection-id"
+}
+```
+
+**⚠️ Important:** The `/full-crawl` endpoint processes ALL companies in your Azure Table Storage and should only be used when explicitly needed. For normal operations, use `/loadcontent` with selected companies.
+
+#### Option C: Re-crawl Previously Processed Companies
+```http
+POST /recrawl-all
+```
+
+All endpoints start background processes that:
+- Extract SEC filings from the EDGAR database
+- Process and enrich content
+- Index items into Microsoft Graph
+- Return HTTP 202 (Accepted) immediately
 
 ### Step 4: Monitor Progress
 
