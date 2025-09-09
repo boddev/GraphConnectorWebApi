@@ -95,6 +95,60 @@ static class ConnectionConfiguration
             Type = PropertyType.DateTime,
             IsRetrievable = true,
             Labels = new() { Label.CreatedDateTime }
+          },
+          new Property
+          {
+            Name = "ContentSummary",
+            Type = PropertyType.String,
+            IsSearchable = true,
+            IsQueryable = true,
+            IsRetrievable = true
+          },
+          new Property
+          {
+            Name = "KeyFinancialMetrics",
+            Type = PropertyType.String,
+            IsSearchable = true,
+            IsQueryable = true,
+            IsRetrievable = true
+          },
+          new Property
+          {
+            Name = "BusinessSegments",
+            Type = PropertyType.String,
+            IsSearchable = true,
+            IsQueryable = true,
+            IsRetrievable = true
+          },
+          new Property
+          {
+            Name = "IndustryCategory",
+            Type = PropertyType.String,
+            IsSearchable = true,
+            IsQueryable = true,
+            IsRetrievable = true
+          },
+          new Property
+          {
+            Name = "CompetitiveAdvantages",
+            Type = PropertyType.String,
+            IsSearchable = true,
+            IsRetrievable = true
+          },
+          new Property
+          {
+            Name = "ESGContent",
+            Type = PropertyType.String,
+            IsSearchable = true,
+            IsRetrievable = true
+          },
+          new Property
+          {
+            Name = "UUID",
+            Type = PropertyType.String,
+            IsQueryable = true,
+            IsSearchable = false,
+            IsRetrievable = true
           }
         }
       };

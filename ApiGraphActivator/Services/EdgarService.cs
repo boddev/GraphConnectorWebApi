@@ -8,6 +8,8 @@ using System.Text.RegularExpressions;
 using System.Reflection.Metadata;
 using Azure.Storage.Blobs;
 using HtmlAgilityPack;
+using Microsoft.Graph.Models;
+using Microsoft.Graph.Models.ExternalConnectors;
 
 namespace ApiGraphActivator.Services;
 
@@ -368,6 +370,9 @@ public static class EdgarService
                                 }
                                 
                                 _logger?.LogInformation($"Successfully extracted {response.Length} characters from PDF {urlField}");
+                                
+                                // Remove SEC filing header content from PDF text as well
+                                response = RemoveSECHeader(response);
                             }
                             catch (Exception pdfEx)
                             {
@@ -391,6 +396,9 @@ public static class EdgarService
                             // Decode HTML entities (like &amp;, &lt;, &gt;, etc.)
                             response = System.Net.WebUtility.HtmlDecode(response);
                             
+                            // Remove SEC filing header content before main document
+                            response = RemoveSECHeader(response);
+                            
                             // Remove XML declarations and processing instructions
                             response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?xml[^>]*\?>", "", RegexOptions.IgnoreCase);
                             response = System.Text.RegularExpressions.Regex.Replace(response, @"<\?[^>]*\?>", "", RegexOptions.IgnoreCase);
@@ -407,12 +415,18 @@ public static class EdgarService
                             response = System.Text.RegularExpressions.Regex.Replace(response, @"xbrli:\w+", "", RegexOptions.IgnoreCase);
                             response = System.Text.RegularExpressions.Regex.Replace(response, @"\b\d{10}\b", ""); // Remove 10-digit numbers that look like IDs
                             
-                            // Clean up whitespace and formatting
+                            // Preserve semantic structure and clean up whitespace
+                            response = PreserveSemanticStructure(response);
                             response = System.Text.RegularExpressions.Regex.Replace(response, @"\s+", " "); // Replace multiple whitespace with single space
                             response = System.Text.RegularExpressions.Regex.Replace(response, @"[\r\n]+", "\n"); // Normalize line breaks
                             response = response.Trim(); // Remove leading/trailing whitespace
                         }
 
+
+                        EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, response);
+                        
+                        // Create the full ExternalItem for indexing and blob storage
+                        ExternalItem fullExternalItem = CreateExternalItem(edgarExternalItem);
 
                         // Upload to blob storage if available
                         if (_blobServiceClient != null && !string.IsNullOrEmpty(processedBlobContainerName))
@@ -425,14 +439,55 @@ public static class EdgarService
                                 // Create the container if it doesn't exist
                                 await containerClient.CreateIfNotExistsAsync();
                                 
-                                // Get a reference to the blob
+                                // Upload raw HTML content
                                 BlobClient blobClient = containerClient.GetBlobClient("/raw/" + itemId + ".html");
                                 await blobClient.UploadAsync(new BinaryData(retVal), true).ConfigureAwait(false);
-                                _logger?.LogTrace($"Uploaded HTML {itemId}.html to blob storage.");
+                                _logger?.LogTrace($"Uploaded raw HTML {itemId}.html to blob storage.");
 
-                                blobClient = containerClient.GetBlobClient("/openai/" + itemId + ".txt");
-                                await blobClient.UploadAsync(new BinaryData(response), true).ConfigureAwait(false);
-                                _logger?.LogTrace($"Uploaded OpenAI: {itemId}.text to blob storage.");
+                                // Upload the full ExternalItem as JSON in REST API format
+                                blobClient = containerClient.GetBlobClient("/processed/" + itemId + ".json");
+                                
+                                // Convert ExternalItem to REST API JSON format
+                                var jsonExternalItem = new ExternalItemForJson
+                                {
+                                    Acl = new List<AclForJson>
+                                    {
+                                        new AclForJson
+                                        {
+                                            Type = "everyone",
+                                            Value = "Everyone", 
+                                            AccessType = "grant"
+                                        }
+                                    },
+                                    Properties = new Dictionary<string, object>
+                                    {
+                                        { "title", fullExternalItem.Properties?.AdditionalData?["Title"] ?? "" },
+                                        { "company", fullExternalItem.Properties?.AdditionalData?["Company"] ?? "" },
+                                        { "url", fullExternalItem.Properties?.AdditionalData?["Url"] ?? "" },
+                                        { "dateFiled", fullExternalItem.Properties?.AdditionalData?["DateFiled"] ?? "" },
+                                        { "form", fullExternalItem.Properties?.AdditionalData?["Form"] ?? "" },
+                                        { "contentSummary", fullExternalItem.Properties?.AdditionalData?["ContentSummary"] ?? "" },
+                                        { "keyFinancialMetrics", ConvertListToStringArray(fullExternalItem.Properties?.AdditionalData?["KeyFinancialMetrics"]) },
+                                        { "businessSegments", ConvertListToStringArray(fullExternalItem.Properties?.AdditionalData?["BusinessSegments"]) },
+                                        { "industryCategory", fullExternalItem.Properties?.AdditionalData?["IndustryCategory"] ?? "" },
+                                        { "competitiveAdvantages", ConvertListToStringArray(fullExternalItem.Properties?.AdditionalData?["CompetitiveAdvantages"]) },
+                                        { "esgContent", ConvertListToStringArray(fullExternalItem.Properties?.AdditionalData?["ESGContent"]) },
+                                        { "uuid", fullExternalItem.Properties?.AdditionalData?["UUID"] ?? "" }
+                                    },
+                                    Content = new ContentForJson
+                                    {
+                                        Value = edgarExternalItem.contentField ?? "",
+                                        Type = "text"
+                                    }
+                                };
+
+                                string externalItemJson = System.Text.Json.JsonSerializer.Serialize(jsonExternalItem, new JsonSerializerOptions 
+                                { 
+                                    WriteIndented = true,
+                                    DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+                                });
+                                await blobClient.UploadAsync(new BinaryData(externalItemJson), true).ConfigureAwait(false);
+                                _logger?.LogTrace($"Uploaded REST API format ExternalItem JSON {itemId}.json to blob storage.");
                             }
                             catch (Exception ex)
                             {
@@ -444,8 +499,8 @@ public static class EdgarService
                             _logger?.LogTrace("Blob storage not configured. Skipping file uploads.");
                         }
 
-                        EdgarExternalItem edgarExternalItem = new EdgarExternalItem(itemId, titleField, companyField, urlField, reportDateField.Value.ToString("o"), formField, response);
-                        ContentService.Transform(edgarExternalItem, connectionId);
+                        // Load the ExternalItem to Graph
+                        await ContentService.Load(fullExternalItem, connectionId);
                         
                         // Track that this company had a document successfully processed
                         _companiesWithProcessedDocuments.Add(documentCompanyName);
@@ -470,6 +525,389 @@ public static class EdgarService
             }
         }
         return externalItemData;
+    }
+
+    // Helper method to convert List<string> to safe format for JSON serialization
+    private static object ConvertListToStringArray(object? listObj)
+    {
+        if (listObj is List<string> list && list.Count > 0)
+        {
+            // Clean each string in the list and remove duplicates
+            var cleanedList = list
+                .Where(s => !string.IsNullOrWhiteSpace(s))
+                .Select(s => s.Trim().TrimEnd(',', ' ')) // Remove trailing commas and spaces
+                .Where(s => s.Length > 3) // Only meaningful strings
+                .Distinct(StringComparer.OrdinalIgnoreCase) // Remove duplicates (case insensitive)
+                .Take(5) // Limit to avoid too much data
+                .ToList();
+            
+            if (cleanedList.Count > 0)
+            {
+                // Instead of returning an array, return a concatenated string
+                // This might be safer for Microsoft Graph deserialization
+                return string.Join("; ", cleanedList);
+            }
+        }
+        // Return null instead of empty array to avoid Microsoft Graph deserialization issues
+        return null!;
+    }
+
+    // Content extraction methods for structured data
+    public static string ExtractExecutiveSummary(string content)
+    {
+        try
+        {
+            // Look for common summary sections in SEC filings
+            var summaryPatterns = new[]
+            {
+                @"(?i)(?:business\s+overview|executive\s+summary|overview\s+of\s+operations|business\s+description)(.*?)(?=\n\s*(?:item|table|risk|competition)|\Z)",
+                @"(?i)(?:item\s+1\s*[.\-–]?\s*business)(.*?)(?=item\s+[12][ab]?|risk\s+factors|\Z)",
+                @"(?i)(?:forward\s*-?\s*looking\s+statements?)(.*?)(?=item|table|\Z)"
+            };
+
+            foreach (var pattern in summaryPatterns)
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(content, pattern, RegexOptions.Singleline);
+                if (match.Success && match.Groups[1].Value.Length > 100)
+                {
+                    var summary = match.Groups[1].Value.Trim();
+                    // Clean up and limit length
+                    summary = System.Text.RegularExpressions.Regex.Replace(summary, @"\s+", " ");
+                    return summary.Length > 500 ? summary.Substring(0, 500) + "..." : summary;
+                }
+            }
+
+            // Fallback: Take first few meaningful paragraphs
+            var paragraphs = content.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+            var meaningfulParagraphs = paragraphs
+                .Where(p => p.Length > 50 && !p.ToUpper().Contains("TABLE OF CONTENTS"))
+                .Take(3)
+                .ToList();
+
+            if (meaningfulParagraphs.Any())
+            {
+                var summary = string.Join(" ", meaningfulParagraphs);
+                return summary.Length > 500 ? summary.Substring(0, 500) + "..." : summary;
+            }
+
+            return "Summary not available";
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning($"Error extracting executive summary: {ex.Message}");
+            return "Summary extraction failed";
+        }
+    }
+
+    public static List<string> ExtractFinancialMetrics(string content)
+    {
+        try
+        {
+            var financialTerms = new List<string>();
+            
+            // Patterns for common financial metrics
+            var patterns = new Dictionary<string, string>
+            {
+                ["Revenue/Sales"] = @"(?i)(?:total\s+)?(?:revenue|sales|net\s+sales)[:\s]*\$?[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|thousand))?",
+                ["Net Income"] = @"(?i)(?:net\s+income|net\s+earnings|profit)[:\s]*\$?[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|thousand))?",
+                ["Assets"] = @"(?i)(?:total\s+)?assets[:\s]*\$?[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|thousand))?",
+                ["Debt"] = @"(?i)(?:total\s+)?(?:debt|liabilities)[:\s]*\$?[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|thousand))?",
+                ["Earnings Per Share"] = @"(?i)(?:earnings\s+per\s+share|eps)[:\s]*\$?[\d,]+\.\d+",
+                ["Market Cap"] = @"(?i)market\s+cap(?:italization)?[:\s]*\$?[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|thousand))?",
+                ["Growth Rate"] = @"(?i)(?:growth|increase|decrease)[^.]*?[\d,]+\.?\d*%"
+            };
+
+            foreach (var pattern in patterns)
+            {
+                var matches = System.Text.RegularExpressions.Regex.Matches(content, pattern.Value);
+                foreach (Match match in matches.Take(3)) // Limit to avoid too many results
+                {
+                    if (match.Success && match.Value.Length < 100)
+                    {
+                        // Clean the match value by removing HTML tags, extra whitespace, and special characters
+                        var cleanMatch = System.Text.RegularExpressions.Regex.Replace(match.Value, @"<[^>]*>", ""); // Remove HTML tags
+                        cleanMatch = System.Text.RegularExpressions.Regex.Replace(cleanMatch, @"\s+", " ").Trim(); // Normalize whitespace
+                        cleanMatch = System.Text.RegularExpressions.Regex.Replace(cleanMatch, @"[^\w\s\$\.\,%\-:]", ""); // Remove special characters except common financial ones
+                        cleanMatch = cleanMatch.TrimEnd(',', ' '); // Remove trailing commas and spaces
+                        
+                        if (!string.IsNullOrEmpty(cleanMatch) && cleanMatch.Length > 5)
+                        {
+                            // Create a more standardized format
+                            var formattedMetric = $"{pattern.Key}: {cleanMatch}";
+                            // Avoid duplicates by checking if similar entry already exists
+                            if (!financialTerms.Any(t => t.StartsWith($"{pattern.Key}:") && 
+                                System.Text.RegularExpressions.Regex.Replace(t.ToLower(), @"[^\w\s]", "") == 
+                                System.Text.RegularExpressions.Regex.Replace(formattedMetric.ToLower(), @"[^\w\s]", "")))
+                            {
+                                financialTerms.Add(formattedMetric);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return financialTerms.Take(10).ToList(); // Limit to top 10 metrics
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning($"Error extracting financial metrics: {ex.Message}");
+            return new List<string> { "Financial metrics extraction failed" };
+        }
+    }
+
+    public static List<string> ExtractBusinessSegments(string content)
+    {
+        try
+        {
+            var segments = new HashSet<string>(); // Use HashSet to avoid duplicates
+            
+            // Look for business segment patterns
+            var segmentPatterns = new[]
+            {
+                @"(?i)(?:business\s+segment|operating\s+segment|reportable\s+segment)[s]?[:\s]*([^.\n]{10,100})",
+                @"(?i)(?:our\s+)?(?:primary\s+)?(?:business|operations?)\s+(?:include|consist|focus)[^.]{10,150}",
+                @"(?i)(?:we\s+operate|operates?)\s+(?:in|through)[^.]{10,100}",
+                @"(?i)(?:main\s+)?(?:product|service)\s+(?:line|offering)[s]?[:\s]*([^.\n]{10,100})"
+            };
+
+            foreach (var pattern in segmentPatterns)
+            {
+                var matches = System.Text.RegularExpressions.Regex.Matches(content, pattern);
+                foreach (Match match in matches.Take(5))
+                {
+                    if (match.Success)
+                    {
+                        var segment = match.Groups.Count > 1 ? match.Groups[1].Value : match.Value;
+                        
+                        // Clean the segment text
+                        segment = System.Text.RegularExpressions.Regex.Replace(segment, @"<[^>]*>", ""); // Remove HTML tags
+                        segment = System.Text.RegularExpressions.Regex.Replace(segment, @"\s+", " ").Trim(); // Normalize whitespace
+                        segment = System.Text.RegularExpressions.Regex.Replace(segment, @"[^\w\s\-&,.]", ""); // Remove special characters except common business ones
+                        
+                        if (segment.Length > 15 && segment.Length < 150 && !string.IsNullOrEmpty(segment))
+                        {
+                            segments.Add(segment);
+                        }
+                    }
+                }
+            }
+
+            // Look for industry-specific keywords
+            var industryKeywords = new[]
+            {
+                "technology", "healthcare", "financial services", "retail", "manufacturing",
+                "energy", "telecommunications", "aerospace", "pharmaceuticals", "automotive",
+                "real estate", "media", "transportation", "utilities", "consumer goods"
+            };
+
+            foreach (var keyword in industryKeywords)
+            {
+                if (content.ToLower().Contains(keyword))
+                {
+                    var pattern = $@"(?i){keyword}[^.\n]{{10,100}}";
+                    var matches = System.Text.RegularExpressions.Regex.Matches(content, pattern);
+                    foreach (Match match in matches.Take(2))
+                    {
+                        if (match.Success && match.Value.Length < 150)
+                        {
+                            var cleanMatch = System.Text.RegularExpressions.Regex.Replace(match.Value, @"\s+", " ").Trim();
+                            segments.Add(cleanMatch);
+                        }
+                    }
+                }
+            }
+
+            return segments.Take(8).ToList(); // Limit to top 8 segments
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning($"Error extracting business segments: {ex.Message}");
+            return new List<string> { "Business segments extraction failed" };
+        }
+    }
+
+    // Method to create a full ExternalItem from EdgarExternalItem
+    public static ExternalItem CreateExternalItem(EdgarExternalItem item)
+    {
+        try
+        {
+            var externalItem = new ExternalItem
+            {
+                Id = itemId,
+                Properties = new()
+                {
+                    AdditionalData = new Dictionary<string, object> {
+                        { "Title", item.titleField ?? "" },
+                        { "Company", item.companyField ?? "" },
+                        { "Url", item.urlField ?? "" },
+                        { "IconUrl", "https://www.sec.gov/themes/investor_gov/images/sec-logo.png" },
+                        { "DateFiled", item.reportDateField ?? "" },
+                        { "Form", item.formField ?? "Unknown" },
+                        { "ContentSummary", ExtractExecutiveSummary(item.contentField ?? "") },
+                        { "KeyFinancialMetrics", ConvertListToStringArray(ExtractFinancialMetrics(item.contentField ?? "")) },
+                        { "BusinessSegments", ConvertListToStringArray(ExtractBusinessSegments(item.contentField ?? "")) },
+                        { "IndustryCategory", DetermineIndustryCategory(item.companyField ?? "") },
+                        { "CompetitiveAdvantages", ConvertListToStringArray(ContentEnhancementService.ExtractCompetitiveAdvantages(item.contentField ?? "")) },
+                        { "ESGContent", ConvertListToStringArray(ContentEnhancementService.ExtractESGContent(item.contentField ?? "")) },
+                        { "UUID", itemId ?? "" }
+                    }
+                },
+                Content = new()
+                {
+                    Value = ContentService.EnhanceContentForCopilot(item.contentField ?? "", item.companyField ?? "", item.formField ?? ""),
+                    Type = ExternalItemContentType.Html
+                },
+                Acl = new()
+                {
+                    new()
+                    {
+                        Type = AclType.Everyone,
+                        Value = "Everyone",
+                        AccessType = AccessType.Grant
+                    }
+                }
+            };
+
+            return externalItem;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError($"Error creating ExternalItem: {ex.Message}");
+            throw;
+        }
+    }
+
+    // Method to remove SEC filing header content before main document
+    public static string RemoveSECHeader(string content)
+    {
+        try
+        {
+            // Look for the main content marker patterns - ordered by specificity
+            var contentStartPatterns = new[]
+            {
+                @"UNITED\s+STATES\s+SECURITIES\s+AND\s+EXCHANGE\s+COMMISSION",
+                @"UNITED\s*STATES\s*SECURITIES\s*AND\s*EXCHANGE",
+                @"UNITED\s*STATES\s*SECURITIES",
+                @"UNITED\s*STATESSECURITIES",
+                @"STATESSECURITIES", // Handle cases without UNITED prefix
+                @"STATES\s+SECURITIES", // Handle cases with space but without UNITED
+                @"SECURITIES\s+AND\s+EXCHANGE\s+COMMISSION",
+                // Alternative patterns that might appear
+                @"Form\s+\d+-[KQ]\s+.*?SECURITIES",
+                @"ANNUAL\s+REPORT\s+PURSUANT\s+TO\s+SECTION",
+                @"QUARTERLY\s+REPORT\s+PURSUANT\s+TO\s+SECTION"
+            };
+
+            foreach (var pattern in contentStartPatterns)
+            {
+                var match = System.Text.RegularExpressions.Regex.Match(content, pattern, RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    // Find the start of the main content and keep everything from there
+                    int startIndex = match.Index;
+                    string mainContent = content.Substring(startIndex);
+                    
+                    _logger?.LogTrace($"Removed SEC header content using pattern '{pattern}' (matched: '{match.Value}'). Original length: {content.Length}, New length: {mainContent.Length}, Removed: {content.Length - mainContent.Length} characters");
+                    return mainContent;
+                }
+            }
+
+            // If no pattern found, check if the content is very short and might be all header
+            if (content.Length < 500)
+            {
+                _logger?.LogTrace($"Content is short ({content.Length} chars), no SEC header pattern found, keeping original content");
+            }
+            else
+            {
+                _logger?.LogTrace($"No SEC header pattern found in content of {content.Length} characters, keeping original content");
+            }
+            
+            return content;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning($"Error removing SEC header: {ex.Message}");
+            return content; // Return original content if header removal fails
+        }
+    }
+
+    // Content enhancement methods for better Copilot understanding
+    public static string PreserveSemanticStructure(string content)
+    {
+        try
+        {
+            // Preserve SEC filing structure by marking important sections
+            content = System.Text.RegularExpressions.Regex.Replace(content, 
+                @"(?i)(ITEM\s+\d+[A-Z]?\.?\s*[–\-]?\s*.*?)(?=ITEM\s+\d+|SIGNATURE|\Z)", 
+                "<section data-type=\"filing-item\">$1</section>", 
+                RegexOptions.Multiline);
+
+            // Mark financial data with semantic tags
+            content = System.Text.RegularExpressions.Regex.Replace(content, 
+                @"(\$[\d,]+(?:\.\d+)?(?:\s*(?:million|billion|thousand))?)", 
+                "<financial data-type=\"currency\">$1</financial>");
+
+            // Mark percentages as financial metrics
+            content = System.Text.RegularExpressions.Regex.Replace(content, 
+                @"(\d+\.?\d*%)", 
+                "<financial data-type=\"percentage\">$1</financial>");
+
+            // Mark years as temporal data
+            content = System.Text.RegularExpressions.Regex.Replace(content, 
+                @"\b(19\d{2}|20[0-2]\d)\b", 
+                "<temporal data-type=\"year\">$1</temporal>");
+
+            // Mark table headers and important business terms
+            var businessTerms = new[] { "revenue", "income", "assets", "liabilities", "equity", "cash flow", "earnings", "profit", "loss" };
+            foreach (var term in businessTerms)
+            {
+                content = System.Text.RegularExpressions.Regex.Replace(content,
+                    $@"(?i)\b({term}[s]?)\b",
+                    $"<business-term data-type=\"{term.ToLower()}\">$1</business-term>");
+            }
+
+            return content;
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning($"Error preserving semantic structure: {ex.Message}");
+            return content; // Return original content if enhancement fails
+        }
+    }
+
+    public static string DetermineIndustryCategory(string companyName)
+    {
+        try
+        {
+            var industryKeywords = new Dictionary<string, string[]>
+            {
+                ["Technology"] = new[] { "tech", "software", "microsoft", "apple", "google", "amazon", "meta", "tesla", "intel", "nvidia" },
+                ["Healthcare"] = new[] { "health", "pharma", "medical", "biotech", "hospital", "johnson", "pfizer", "merck" },
+                ["Financial"] = new[] { "bank", "financial", "insurance", "capital", "goldman", "morgan", "wells fargo", "jpmorgan" },
+                ["Energy"] = new[] { "oil", "gas", "energy", "exxon", "chevron", "bp", "shell", "renewable" },
+                ["Retail"] = new[] { "retail", "store", "walmart", "target", "costco", "home depot", "consumer" },
+                ["Manufacturing"] = new[] { "manufacturing", "industrial", "boeing", "caterpillar", "general electric", "3m" },
+                ["Telecommunications"] = new[] { "telecom", "wireless", "verizon", "att", "t-mobile", "comcast" },
+                ["Automotive"] = new[] { "auto", "ford", "general motors", "toyota", "volkswagen", "automotive" }
+            };
+
+            var lowerCompanyName = companyName.ToLower();
+            
+            foreach (var industry in industryKeywords)
+            {
+                if (industry.Value.Any(keyword => lowerCompanyName.Contains(keyword)))
+                {
+                    return industry.Key;
+                }
+            }
+
+            return "General";
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning($"Error determining industry category: {ex.Message}");
+            return "Unknown";
+        }
     }
 
     // Define a method to insert an item if it does not exist in the table
@@ -748,4 +1186,38 @@ public static class EdgarService
         await _storageService.InitializeAsync();
         _logger?.LogInformation("EdgarService storage service initialized: {StorageType}", _storageService.GetStorageType());
     }
+}
+
+// Custom classes for REST API JSON serialization
+public class ExternalItemForJson
+{
+    [System.Text.Json.Serialization.JsonPropertyName("acl")]
+    public List<AclForJson> Acl { get; set; } = new();
+
+    [System.Text.Json.Serialization.JsonPropertyName("properties")]
+    public Dictionary<string, object> Properties { get; set; } = new();
+
+    [System.Text.Json.Serialization.JsonPropertyName("content")]
+    public ContentForJson Content { get; set; } = new();
+}
+
+public class AclForJson
+{
+    [System.Text.Json.Serialization.JsonPropertyName("type")]
+    public string Type { get; set; } = "";
+
+    [System.Text.Json.Serialization.JsonPropertyName("value")]
+    public string Value { get; set; } = "";
+
+    [System.Text.Json.Serialization.JsonPropertyName("accessType")]
+    public string AccessType { get; set; } = "";
+}
+
+public class ContentForJson
+{
+    [System.Text.Json.Serialization.JsonPropertyName("value")]
+    public string Value { get; set; } = "";
+
+    [System.Text.Json.Serialization.JsonPropertyName("type")]
+    public string Type { get; set; } = "";
 }

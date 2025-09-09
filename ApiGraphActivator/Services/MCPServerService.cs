@@ -22,6 +22,20 @@ namespace ApiGraphActivator.Services
             _documentSearchService = documentSearchService;
         }
 
+        private MCPResponse CreateErrorResponse(object? id, int code, string message)
+        {
+            var response = new MCPResponse { Id = id };
+            response.SetError(new MCPError { Code = code, Message = message });
+            return response;
+        }
+
+        private MCPResponse CreateSuccessResponse(object? id, object result)
+        {
+            var response = new MCPResponse { Id = id };
+            response.SetResult(result);
+            return response;
+        }
+
         public async Task<MCPResponse> HandleRequest(MCPRequest request)
         {
             try
@@ -35,45 +49,33 @@ namespace ApiGraphActivator.Services
                     "tools/call" => await HandleToolCall(request),
                     "resources/list" => await HandleResourcesList(request),
                     "resources/read" => await HandleResourceRead(request),
-                    _ => new MCPResponse 
-                    { 
-                        Id = request.Id, 
-                        Error = new MCPError { Code = -32601, Message = "Method not found" } 
-                    }
+                    _ => CreateErrorResponse(request.Id, -32601, "Method not found")
                 };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error handling MCP request: {Method}", request.Method);
-                return new MCPResponse 
-                { 
-                    Id = request.Id, 
-                    Error = new MCPError { Code = -32603, Message = "Internal error" } 
-                };
+                return CreateErrorResponse(request.Id, -32603, "Internal error");
             }
         }
 
         private Task<MCPResponse> HandleInitialize(MCPRequest request)
         {
-            return Task.FromResult(new MCPResponse
+            return Task.FromResult(CreateSuccessResponse(request.Id, new
             {
-                Id = request.Id,
-                Result = new
+                protocolVersion = "2024-11-05",
+                capabilities = new
                 {
-                    protocolVersion = "2024-11-05",
-                    capabilities = new
-                    {
-                        tools = new { },
-                        resources = new { },
-                        prompts = new { }
-                    },
-                    serverInfo = new
-                    {
-                        name = "SEC Edgar Document Processor",
-                        version = "1.0.0"
-                    }
+                    tools = new { },
+                    resources = new { },
+                    prompts = new { }
+                },
+                serverInfo = new
+                {
+                    name = "SEC Edgar Document Processor",
+                    version = "1.0.0"
                 }
-            });
+            }));
         }
 
         private Task<MCPResponse> HandleToolsList(MCPRequest request)
@@ -200,7 +202,7 @@ namespace ApiGraphActivator.Services
             };
         }
 
-        private async Task<MCPResponse> HandleSearchDocuments(string requestId, JsonElement arguments)
+        private async Task<MCPResponse> HandleSearchDocuments(object? requestId, JsonElement arguments)
         {
             try
             {
@@ -263,7 +265,7 @@ namespace ApiGraphActivator.Services
             }
         }
 
-        private async Task<MCPResponse> HandleGetDocumentContent(string requestId, JsonElement arguments)
+        private async Task<MCPResponse> HandleGetDocumentContent(object? requestId, JsonElement arguments)
         {
             try
             {
@@ -310,7 +312,7 @@ namespace ApiGraphActivator.Services
             }
         }
 
-        private async Task<MCPResponse> HandleAnalyzeDocument(string requestId, JsonElement arguments)
+        private async Task<MCPResponse> HandleAnalyzeDocument(object? requestId, JsonElement arguments)
         {
             try
             {
@@ -360,7 +362,7 @@ namespace ApiGraphActivator.Services
             }
         }
 
-        private async Task<MCPResponse> HandleGetCrawlStatus(string requestId, JsonElement arguments)
+        private async Task<MCPResponse> HandleGetCrawlStatus(object? requestId, JsonElement arguments)
         {
             try
             {
@@ -415,7 +417,7 @@ namespace ApiGraphActivator.Services
             }
         }
 
-        private async Task<MCPResponse> HandleGetLastCrawlInfo(string requestId, JsonElement arguments)
+        private async Task<MCPResponse> HandleGetLastCrawlInfo(object? requestId, JsonElement arguments)
         {
             try
             {
@@ -540,7 +542,7 @@ namespace ApiGraphActivator.Services
             }
         }
 
-        private async Task<MCPResponse> HandleGetCrawledCompanies(string requestId, JsonElement arguments)
+        private async Task<MCPResponse> HandleGetCrawledCompanies(object? requestId, JsonElement arguments)
         {
             try
             {

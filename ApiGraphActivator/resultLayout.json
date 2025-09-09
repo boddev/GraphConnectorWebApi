@@ -1,0 +1,104 @@
+{
+  "type": "AdaptiveCard",
+  "version": "1.0",
+  "body": [
+    {
+      "type": "Container",
+      "items": [
+        {
+          "type": "TextBlock",
+          "text": "{Title}",
+          "weight": "Bolder",
+          "size": "Medium",
+          "wrap": true,
+          "maxLines": 2
+        },
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "**Company:** {Company}",
+                  "isSubtle": true,
+                  "spacing": "None",
+                  "size": "Small"
+                }
+              ],
+              "width": "stretch"
+            },
+            {
+              "type": "Column",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "**Filed:** {DateFiled}",
+                  "isSubtle": true,
+                  "spacing": "None",
+                  "size": "Small"
+                }
+              ],
+              "width": "auto"
+            }
+          ]
+        },
+        {
+          "type": "ColumnSet",
+          "columns": [
+            {
+              "type": "Column",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "**Form:** {Form}",
+                  "isSubtle": true,
+                  "size": "Small"
+                }
+              ],
+              "width": "auto"
+            },
+            {
+              "type": "Column",
+              "items": [
+                {
+                  "type": "TextBlock",
+                  "text": "**Industry:** {IndustryCategory}",
+                  "isSubtle": true,
+                  "size": "Small"
+                }
+              ],
+              "width": "auto"
+            }
+          ]
+        },
+        {
+          "type": "TextBlock",
+          "text": "{ContentSummary}",
+          "wrap": true,
+          "maxLines": 3,
+          "isSubtle": true,
+          "size": "Small",
+          "spacing": "Small"
+        },
+        {
+          "type": "TextBlock",
+          "text": "**Key Metrics:** {KeyFinancialMetrics}",
+          "wrap": true,
+          "maxLines": 2,
+          "isSubtle": true,
+          "size": "ExtraSmall",
+          "spacing": "Small"
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.OpenUrl",
+      "title": "View SEC Filing",
+      "url": "{Url}"
+    }
+  ]
+}
