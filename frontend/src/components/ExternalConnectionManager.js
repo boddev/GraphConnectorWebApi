@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import './ExternalConnectionManager.css';
 
 const ExternalConnectionManager = ({ onConnectionSelect }) => {
@@ -15,30 +15,30 @@ const ExternalConnectionManager = ({ onConnectionSelect }) => {
     description: ''
   });
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    fetchConnections();
-  }, []);
-
-  const fetchConnections = async () => {
+  const fetchConnections = useCallback(async () => {
     try {
       setLoading(true);
       const response = await fetch('/external-connections');
-      
+
       if (!response.ok) {
         throw new Error(`Failed to fetch connections: ${response.statusText}`);
       }
-      
+
       const data = await response.json();
       setConnections(data);
-      
-      // Select default connection if available
+
+      // Select default connection only if none selected already
       const defaultConnection = data.find(conn => conn.isDefault);
-      if (defaultConnection && !selectedConnectionId) {
-        setSelectedConnectionId(defaultConnection.id);
-        if (onConnectionSelect) {
-          onConnectionSelect(defaultConnection.id);
-        }
+      if (defaultConnection) {
+        setSelectedConnectionId(prev => {
+          if (!prev) {
+            if (onConnectionSelect) {
+              onConnectionSelect(defaultConnection.id);
+            }
+            return defaultConnection.id;
+          }
+          return prev;
+        });
       }
     } catch (err) {
       console.error('Error fetching connections:', err);
@@ -46,7 +46,11 @@ const ExternalConnectionManager = ({ onConnectionSelect }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [onConnectionSelect]);
+
+  useEffect(() => {
+    fetchConnections();
+  }, [fetchConnections]);
 
   const handleConnectionSelect = (connectionId) => {
     setSelectedConnectionId(connectionId);
