@@ -11,6 +11,7 @@ const readline = require('readline');
 class MCPBridge {
     constructor() {
         this.serverUrl = 'http://localhost:5236';
+        //this.serverUrl = 'https://edgarconnector-hqfkbgatdaf6a0cz.northcentralus-01.azurewebsites.net';
         this.setupIO();
     }
 
@@ -27,13 +28,17 @@ class MCPBridge {
             try {
                 if (line.trim()) {
                     const message = JSON.parse(line);
+                    console.error(`Received from Claude: ${JSON.stringify(message)}`);
+                    
                     // Ensure we have a valid ID - Claude Desktop requires this
-                    if (!message.id) {
+                    // Note: Don't use !message.id because 0 is a valid ID
+                    if (message.id === undefined || message.id === null) {
                         message.id = Date.now().toString();
                     }
                     this.forwardToServer(message);
                 }
             } catch (error) {
+                console.error(`JSON parse error: ${error.message}`);
                 this.sendError('parse-error', 'Invalid JSON received', null);
             }
         });
@@ -68,16 +73,32 @@ class MCPBridge {
             
             res.on('end', () => {
                 try {
+                    // Parse the JSON response
+                    const response = JSON.parse(data);
+                    
+                    // Fix protocol version if needed
+                    if (response.result && response.result.protocolVersion === "2024-11-05") {
+                        response.result.protocolVersion = "2025-06-18";
+                    }
+                    
                     // Forward the response back to Claude Desktop
-                    console.log(data);
+                    console.log(JSON.stringify(response));
                 } catch (error) {
+                    console.error(`Error parsing server response: ${error.message}`);
                     this.sendError('server-error', 'Invalid response from server', message.id);
                 }
             });
         });
 
         req.on('error', (error) => {
+            console.error(`Connection error: ${error.message}`);
             this.sendError('connection-error', `Failed to connect to MCP server: ${error.message}`, message.id);
+        });
+
+        // Set a timeout for the request
+        req.setTimeout(30000, () => {
+            req.destroy();
+            this.sendError('timeout-error', 'Request to MCP server timed out', message.id);
         });
 
         req.write(requestData);

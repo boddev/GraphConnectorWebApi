@@ -3,6 +3,13 @@ using Microsoft.Extensions.Logging.ApplicationInsights;
 using ApiGraphActivator;
 using System.Text.Json;
 
+// Check for MCP stdio mode early, before building web application
+if (args.Contains("--mcp-stdio"))
+{
+    return await RunStdioModeAsync(args);
+}
+
+// Continue with normal web application setup
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -59,6 +66,9 @@ builder.Services.AddScoped<MCPServerService>();
 builder.Services.AddScoped<CopilotChatService>();
 builder.Services.AddScoped<DocumentSearchService>();
 builder.Services.AddScoped<ExternalConnectionManagerService>();
+
+// Register MCP Transport Service for stdio mode
+builder.Services.AddScoped<MCPTransportService>();
 
 // For static services that need logging
 builder.Services.AddSingleton<ILoggerFactory, LoggerFactory>();
@@ -851,3 +861,59 @@ app.MapPost("/mcp", async (MCPRequest request, MCPServerService mcpService) =>
 .WithOpenApi();
 
 app.Run();
+return 0;
+
+/// <summary>
+/// Runs the MCP server in stdio transport mode
+/// </summary>
+static async Task<int> RunStdioModeAsync(string[] args)
+{
+    // Create a minimal host builder for stdio mode
+    var hostBuilder = Host.CreateDefaultBuilder(args)
+        .ConfigureServices((context, services) =>
+        {
+            // Add logging
+            services.AddLogging(loggingBuilder =>
+            {
+                loggingBuilder.AddConsole();
+                loggingBuilder.AddDebug();
+            });
+
+            // Register required services for MCP
+            services.AddSingleton<LoggingService>();
+            services.AddSingleton<StorageConfigurationService>();
+            services.AddHttpClient();
+            services.AddScoped<MCPServerService>();
+            services.AddScoped<CopilotChatService>();
+            services.AddScoped<DocumentSearchService>();
+            services.AddScoped<ExternalConnectionManagerService>();
+            services.AddScoped<MCPTransportService>();
+        });
+
+    using var host = hostBuilder.Build();
+    var logger = host.Services.GetRequiredService<ILogger<Program>>();
+    
+    logger.LogInformation("Starting MCP server in stdio transport mode");
+    
+    try
+    {
+        var transportService = host.Services.GetRequiredService<MCPTransportService>();
+        using var cts = new CancellationTokenSource();
+        
+        // Handle Ctrl+C gracefully
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true;
+            cts.Cancel();
+            logger.LogInformation("Shutting down MCP stdio transport...");
+        };
+        
+        await transportService.RunStdioTransportAsync(cts.Token);
+        return 0;
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Fatal error in MCP stdio transport");
+        return 1;
+    }
+}

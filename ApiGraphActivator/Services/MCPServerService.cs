@@ -31,6 +31,7 @@ namespace ApiGraphActivator.Services
 
         private MCPResponse CreateSuccessResponse(object? id, object result)
         {
+            _logger.LogInformation("Creating success response with ID: {Id}", id);
             var response = new MCPResponse { Id = id };
             response.SetResult(result);
             return response;
@@ -40,7 +41,7 @@ namespace ApiGraphActivator.Services
         {
             try
             {
-                _logger.LogInformation("Handling MCP request: {Method}", request.Method);
+                _logger.LogInformation("Handling MCP request: {Method} with ID: {Id}", request.Method, request.Id);
                 
                 return request.Method switch
                 {
@@ -61,9 +62,10 @@ namespace ApiGraphActivator.Services
 
         private Task<MCPResponse> HandleInitialize(MCPRequest request)
         {
-            return Task.FromResult(CreateSuccessResponse(request.Id, new
+            _logger.LogInformation("HandleInitialize called with request ID: {Id} (type: {Type})", request.Id, request.Id?.GetType());
+            var response = CreateSuccessResponse(request.Id, new
             {
-                protocolVersion = "2024-11-05",
+                protocolVersion = "2025-06-18",
                 capabilities = new
                 {
                     tools = new { },
@@ -75,7 +77,9 @@ namespace ApiGraphActivator.Services
                     name = "SEC Edgar Document Processor",
                     version = "1.0.0"
                 }
-            }));
+            });
+            _logger.LogInformation("HandleInitialize returning response with ID: {Id} (type: {Type})", response.Id, response.Id?.GetType());
+            return Task.FromResult(response);
         }
 
         private Task<MCPResponse> HandleToolsList(MCPRequest request)
