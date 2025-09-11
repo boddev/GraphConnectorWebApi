@@ -860,6 +860,14 @@ app.MapPost("/mcp", async (MCPRequest request, MCPServerService mcpService) =>
 .WithName("MCPServer")
 .WithOpenApi();
 
+// Add MCP Server endpoint
+app.MapPost("/discover", async (MCPRequest request, MCPServerService mcpService) =>
+{
+    return await mcpService.HandleRequest(request);
+})
+.WithName("MCPDiscover")
+.WithOpenApi();
+
 app.Run();
 return 0;
 
