@@ -50,6 +50,7 @@ namespace ApiGraphActivator.Services
                     "tools/call" => await HandleToolCall(request),
                     "resources/list" => await HandleResourcesList(request),
                     "resources/read" => await HandleResourceRead(request),
+                    "prompts/list" => await HandlePromptsList(request),
                     _ => CreateErrorResponse(request.Id, -32601, "Method not found")
                 };
             }
@@ -68,9 +69,20 @@ namespace ApiGraphActivator.Services
                 protocolVersion = "2025-06-18",
                 capabilities = new
                 {
-                    tools = new { },
-                    resources = new { },
-                    prompts = new { }
+                    tools = new
+                    {
+                        listChanged = true
+                    },
+                    resources = new
+                    {
+                        subscribe = false,
+                        listChanged = false
+                    },
+                    prompts = new
+                    {
+                        listChanged = false
+                    },
+                    logging = new { }
                 },
                 serverInfo = new
                 {
@@ -90,6 +102,11 @@ namespace ApiGraphActivator.Services
                 {
                     name = "search_documents",
                     description = "Search SEC documents by company, form type, or content",
+                    annotations = new
+                    {
+                        title = "Search SEC Documents",
+                        readOnlyHint = true
+                    },
                     inputSchema = new
                     {
                         type = "object",
@@ -107,6 +124,11 @@ namespace ApiGraphActivator.Services
                 {
                     name = "get_document_content",
                     description = "Retrieve full content of a specific SEC document",
+                    annotations = new
+                    {
+                        title = "Get SEC Document Content",
+                        readOnlyHint = true
+                    },
                     inputSchema = new
                     {
                         type = "object",
@@ -121,6 +143,11 @@ namespace ApiGraphActivator.Services
                 {
                     name = "analyze_document",
                     description = "Analyze SEC document content using AI",
+                    annotations = new
+                    {
+                        title = "Analyze SEC Document",
+                        readOnlyHint = true
+                    },
                     inputSchema = new
                     {
                         type = "object",
@@ -136,6 +163,11 @@ namespace ApiGraphActivator.Services
                 {
                     name = "get_crawl_status",
                     description = "Get the current crawl status and progress",
+                    annotations = new
+                    {
+                        title = "Get Crawl Status",
+                        readOnlyHint = true
+                    },
                     inputSchema = new
                     {
                         type = "object",
@@ -147,6 +179,11 @@ namespace ApiGraphActivator.Services
                 {
                     name = "get_last_crawl_info",
                     description = "Get information about the last crawl including timestamp and results",
+                    annotations = new
+                    {
+                        title = "Get Last Crawl Info",
+                        readOnlyHint = true
+                    },
                     inputSchema = new
                     {
                         type = "object",
@@ -161,6 +198,11 @@ namespace ApiGraphActivator.Services
                 {
                     name = "get_crawled_companies",
                     description = "Get detailed information about companies that have been successfully crawled including document counts and metrics",
+                    annotations = new
+                    {
+                        title = "Get Crawled Companies",
+                        readOnlyHint = true
+                    },
                     inputSchema = new
                     {
                         type = "object",
@@ -174,6 +216,18 @@ namespace ApiGraphActivator.Services
             {
                 Id = request.Id,
                 Result = new { tools }
+            });
+        }
+
+        private Task<MCPResponse> HandlePromptsList(MCPRequest request)
+        {
+            // Return empty prompts array as we don't currently support prompts
+            var prompts = new object[] { };
+
+            return Task.FromResult(new MCPResponse
+            {
+                Id = request.Id,
+                Result = new { prompts }
             });
         }
 
