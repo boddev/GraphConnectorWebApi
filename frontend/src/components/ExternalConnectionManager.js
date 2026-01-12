@@ -27,15 +27,16 @@ const ExternalConnectionManager = ({ onConnectionSelect }) => {
       const data = await response.json();
       setConnections(data);
 
-      // Select default connection only if none selected already
-      const defaultConnection = data.find(conn => conn.isDefault);
-      if (defaultConnection) {
+      // Select a connection only if none selected already.
+      // Prefer an explicit default if present; otherwise pick the first available.
+      const preferred = data.find(conn => conn.isDefault) || data[0];
+      if (preferred) {
         setSelectedConnectionId(prev => {
           if (!prev) {
             if (onConnectionSelect) {
-              onConnectionSelect(defaultConnection.id);
+              onConnectionSelect(preferred.id);
             }
-            return defaultConnection.id;
+            return preferred.id;
           }
           return prev;
         });

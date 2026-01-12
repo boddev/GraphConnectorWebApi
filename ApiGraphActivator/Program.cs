@@ -196,10 +196,16 @@ app.MapPost("/loadcontent", async (HttpContext context, BackgroundTaskQueue task
         {
             staticServiceLogger.LogInformation("Loading content for {CompanyCount} companies", crawlRequest.Companies.Count);
             
-            // Use connectionId from request or default
-            var targetConnectionId = !string.IsNullOrEmpty(crawlRequest.ConnectionId) 
-                ? crawlRequest.ConnectionId 
-                : null; // Will default to main connection
+            // Require explicit connectionId (no implicit default)
+            if (string.IsNullOrWhiteSpace(crawlRequest.ConnectionId))
+            {
+                staticServiceLogger.LogWarning("No connectionId provided in crawl request");
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsync("connectionId is required");
+                return;
+            }
+
+            var targetConnectionId = crawlRequest.ConnectionId;
             
             staticServiceLogger.LogInformation("Target connection ID: {ConnectionId}", targetConnectionId ?? "default");
             
@@ -270,6 +276,13 @@ app.MapPost("/recrawl-all", async (HttpContext context, BackgroundTaskQueue task
         }
         
         staticServiceLogger.LogInformation("Recrawling for connection: {ConnectionId}", connectionId ?? "default");
+
+        if (string.IsNullOrWhiteSpace(connectionId))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("connectionId is required");
+            return;
+        }
         
         // Load previously crawled companies for the specific connection
         var config = await ConfigurationService.LoadCrawledCompaniesAsync(connectionId);
@@ -338,6 +351,13 @@ app.MapPost("/full-crawl", async (HttpContext context, BackgroundTaskQueue taskQ
         }
         
         staticServiceLogger.LogInformation("Starting explicit full crawl for connection: {ConnectionId}", connectionId ?? "default");
+
+        if (string.IsNullOrWhiteSpace(connectionId))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("connectionId is required");
+            return;
+        }
         
         // Queue the full crawl task
         await taskQueue.QueueBackgroundWorkItemAsync(async token =>
@@ -401,6 +421,13 @@ app.MapGet("/crawled-companies", async (HttpContext context) =>
     {
         // Get connectionId from query parameter
         string? connectionId = context.Request.Query["connectionId"].FirstOrDefault();
+
+        if (string.IsNullOrWhiteSpace(connectionId))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("connectionId query parameter is required");
+            return;
+        }
         
         staticServiceLogger.LogInformation("Fetching previously crawled companies for connection: {ConnectionId}", connectionId ?? "default");
         var config = await ConfigurationService.LoadCrawledCompaniesAsync(connectionId);

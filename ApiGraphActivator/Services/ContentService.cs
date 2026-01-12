@@ -26,14 +26,17 @@ static class ContentService
       var serviceLogger = loggerFactory.CreateLogger<ExternalConnectionManagerService>();
       var connectionService = new ExternalConnectionManagerService(serviceLogger);
       var defaultConnectionId = await connectionService.GetDefaultConnectionIdAsync();
-      
-      // Fall back to hardcoded connection if no default is found
-      return defaultConnectionId ?? ConnectionConfiguration.ExternalConnection.Id!;
+      if (string.IsNullOrWhiteSpace(defaultConnectionId))
+      {
+        throw new InvalidOperationException("No default external connection is configured.");
+      }
+
+      return defaultConnectionId;
     }
     catch (Exception ex)
     {
-      logger.LogError(ex, "Error getting default connection ID, using hardcoded fallback");
-      return ConnectionConfiguration.ExternalConnection.Id!;
+      logger.LogError(ex, "Error getting default connection ID");
+      throw;
     }
   }
 
@@ -141,13 +144,17 @@ static class ContentService
         item.Content?.Type, item.Content?.Value?.Length ?? 0);
       
       // Log ACL details  
-      logger.LogDebug("Item ACL count: {AclCount}", item.Acl?.Count ?? 0);        // Await the asynchronous operation of putting the item into the GraphService client
-        // await GraphService.Client.External
-        //   .Connections[Uri.EscapeDataString(connectionId)]
-        //   .Items[item.Id]
-        //   .PutAsync(item);
-        // // Output a message to the console indicating the completion of the item loading process
-        logger.LogTrace($"{item.Id} completed.");
+      logger.LogDebug("Item ACL count: {AclCount}", item.Acl?.Count ?? 0);
+
+        // PUT (upsert) the item into the external connection
+        var safeConnectionId = Uri.EscapeDataString(connectionId);
+        var safeItemId = Uri.EscapeDataString(item.Id);
+        await GraphService.Client.External
+          .Connections[safeConnectionId]
+          .Items[safeItemId]
+          .PutAsync(item);
+
+        logger.LogInformation("Successfully PUT item {ItemId} to connection {ConnectionId}", item.Id, connectionId);
 
         // Get the URL from the item's AdditionalData dictionary
         if (item.Properties?.AdditionalData?.ContainsKey("Url") == true)

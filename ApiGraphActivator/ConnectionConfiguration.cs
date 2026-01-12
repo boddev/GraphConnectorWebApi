@@ -24,21 +24,6 @@ static class ConnectionConfiguration
     }
   }
 
-  // Define a public static property to get the ExternalConnection object
-  public static ExternalConnection ExternalConnection
-  {
-    get
-    {
-      // Return a new ExternalConnection object with predefined properties
-      return new ExternalConnection
-      {
-        Id = "secedgartextdataset",
-        Name = "SECEdgarTextDataset",
-        Description = "This connection contains SEC filing documents (8-K, 10-Q, 10-K). 10-K reports provide annual financial overviews, 10-Q reports offer quarterly financial snapshots, and 8-K forms notify investors of significant company events. These documents help investors track public companies' financial health and important developments."
-      };
-    }
-  }
-
   public static Schema Schema
   {
     get

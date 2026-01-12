@@ -9,7 +9,21 @@ static class ConnectionService
   {
     try
     {
-        ExternalConnection connection = ConnectionConfiguration.ExternalConnection;
+      var connectionId = Environment.GetEnvironmentVariable("PROVISION_CONNECTION_ID");
+      var connectionName = Environment.GetEnvironmentVariable("PROVISION_CONNECTION_NAME");
+      var connectionDescription = Environment.GetEnvironmentVariable("PROVISION_CONNECTION_DESCRIPTION");
+
+      if (string.IsNullOrWhiteSpace(connectionId) || string.IsNullOrWhiteSpace(connectionName))
+      {
+        return (false, null, "Provisioning requires PROVISION_CONNECTION_ID and PROVISION_CONNECTION_NAME environment variables.");
+      }
+
+      ExternalConnection connection = new ExternalConnection
+      {
+        Id = connectionId,
+        Name = connectionName,
+        Description = connectionDescription ?? string.Empty
+      };
 
         // Await the asynchronous operation of posting a new connection to the GraphService client
         var result = await GraphService.Client.External.Connections.PostAsync(connection);
@@ -41,7 +55,7 @@ static class ConnectionService
     // Await the asynchronous operation of patching the schema for the specified connection in the GraphService client
     Schema schema = ConnectionConfiguration.Schema;
     await GraphService.Client.External
-      .Connections[ConnectionConfiguration.ExternalConnection.Id]
+      .Connections[Environment.GetEnvironmentVariable("PROVISION_CONNECTION_ID") ?? throw new InvalidOperationException("PROVISION_CONNECTION_ID is required")]
       .Schema
       .PatchAsync(schema);
 

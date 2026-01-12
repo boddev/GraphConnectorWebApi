@@ -28,18 +28,8 @@ public class ExternalConnectionManagerService
         {
             if (!File.Exists(_connectionsFilePath))
             {
-                // Return default connection if no custom connections exist
-                return new List<ExternalConnectionInfo>
-                {
-                    new ExternalConnectionInfo
-                    {
-                        Id = ConnectionConfiguration.ExternalConnection.Id!,
-                        Name = ConnectionConfiguration.ExternalConnection.Name!,
-                        Description = ConnectionConfiguration.ExternalConnection.Description!,
-                        IsDefault = true,
-                        CreatedDate = DateTime.UtcNow
-                    }
-                };
+                // No connections configured locally
+                return new List<ExternalConnectionInfo>();
             }
 
             var json = await File.ReadAllTextAsync(_connectionsFilePath);
@@ -153,8 +143,11 @@ public class ExternalConnectionManagerService
         }
         catch (Microsoft.Graph.Models.ODataErrors.ODataError odataError)
         {
-            string errorDetails = $"Error code: {odataError.Error?.Code}, Message: {odataError.Error?.Message}";
+            var errorCode = odataError.Error?.Code;
+            var errorMessage = odataError.Error?.Message;
+            string errorDetails = $"Error code: {errorCode}, Message: {errorMessage}";
             _logger.LogError($"Microsoft Graph API error creating connection '{request.Id}': {errorDetails}");
+            _logger.LogError("Full OData error: {ODataError}", odataError.ToString());
             
             // Additional details for debugging
             if (odataError.Error?.Details != null)
@@ -164,22 +157,43 @@ public class ExternalConnectionManagerService
                     _logger.LogError($"Additional error detail - Code: {detail.Code}, Message: {detail.Message}");
                 }
             }
+
+            // InnerError often contains request-id and other diagnostics even when Message is empty
+            string? requestId = null;
+            string? clientRequestId = null;
+            string? innerDate = null;
+            if (odataError.Error?.InnerError?.AdditionalData != null)
+            {
+                var inner = odataError.Error.InnerError.AdditionalData;
+                if (inner.TryGetValue("request-id", out var rid)) requestId = rid?.ToString();
+                if (inner.TryGetValue("client-request-id", out var crid)) clientRequestId = crid?.ToString();
+                if (inner.TryGetValue("date", out var dt)) innerDate = dt?.ToString();
+                _logger.LogError("InnerError additional data: {@InnerError}", inner);
+            }
             
             // Provide more user-friendly error messages
-            string userFriendlyMessage = odataError.Error?.Code switch
+            string userFriendlyMessage = errorCode switch
             {
                 "InvalidRequest" => "The connection request is invalid. Please check the connection ID format (3-32 characters, letters/numbers/underscores only).",
                 "Conflict" => "A connection with this ID already exists. Please choose a different ID.",
                 "Forbidden" => "You don't have permission to create external connections. Please check your Microsoft Graph permissions.",
                 _ => errorDetails
             };
+
+            if (!string.IsNullOrWhiteSpace(requestId) || !string.IsNullOrWhiteSpace(clientRequestId) || !string.IsNullOrWhiteSpace(innerDate))
+            {
+                userFriendlyMessage += $" (request-id: {requestId ?? "n/a"}, client-request-id: {clientRequestId ?? "n/a"}, date: {innerDate ?? "n/a"})";
+            }
             
             return (false, null, userFriendlyMessage);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Unexpected error creating connection");
-            return (false, null, ex.Message);
+            var detailedMessage = ex.InnerException != null
+                ? $"{ex.Message} InnerException: {ex.InnerException.Message}"
+                : ex.Message;
+            return (false, null, detailedMessage);
         }
     }
 
@@ -209,12 +223,6 @@ public class ExternalConnectionManagerService
     {
         try
         {
-            // Don't allow deletion of default connection
-            if (connectionId == ConnectionConfiguration.ExternalConnection.Id)
-            {
-                return (false, "Cannot delete the default connection");
-            }
-
             // Delete from Microsoft Graph
             await GraphService.Client.External.Connections[connectionId].DeleteAsync();
             _logger.LogInformation($"Connection deleted successfully: {connectionId}");

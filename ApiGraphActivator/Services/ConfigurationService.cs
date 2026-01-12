@@ -15,10 +15,9 @@ public static class ConfigurationService
     {
         try
         {
-            // Use default connection if none specified
             if (string.IsNullOrEmpty(connectionId))
             {
-                connectionId = ConnectionConfiguration.ExternalConnection.Id!;
+                throw new InvalidOperationException("connectionId is required to save crawled companies.");
             }
 
             // Load existing configuration
@@ -73,10 +72,9 @@ public static class ConfigurationService
     {
         try
         {
-            // Use default connection if none specified
             if (string.IsNullOrEmpty(connectionId))
             {
-                connectionId = ConnectionConfiguration.ExternalConnection.Id!;
+                throw new InvalidOperationException("connectionId is required to update crawled company timestamps.");
             }
 
             // Load existing configuration
@@ -165,12 +163,12 @@ public static class ConfigurationService
                     LastCrawlDate = oldConfig.LastCrawlDate,
                     ConnectionCompanies = new Dictionary<string, List<Company>>
                     {
-                        // Migrate old companies to default connection
-                        { ConnectionConfiguration.ExternalConnection.Id!, oldConfig.Companies }
+                        // Migrate old companies to a non-default legacy bucket
+                        { "legacy", oldConfig.Companies }
                     }
                 };
-                
-                Console.WriteLine($"Migrated {oldConfig.Companies.Count} companies from old format to connection {ConnectionConfiguration.ExternalConnection.Id}");
+
+                Console.WriteLine($"Migrated {oldConfig.Companies.Count} companies from old format to connection legacy");
                 
                 // Save migrated configuration
                 var migratedJsonString = JsonSerializer.Serialize(newConfig, JsonOptions);
@@ -193,10 +191,9 @@ public static class ConfigurationService
     {
         try
         {
-            // Use default connection if none specified
             if (string.IsNullOrEmpty(connectionId))
             {
-                connectionId = ConnectionConfiguration.ExternalConnection.Id!;
+                throw new InvalidOperationException("connectionId is required to load crawled companies.");
             }
 
             var configV2 = await LoadCrawledCompaniesConfigAsync();
