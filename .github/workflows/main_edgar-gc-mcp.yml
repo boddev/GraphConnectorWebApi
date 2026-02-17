@@ -28,7 +28,7 @@ jobs:
       - name: Install and Build React Frontend
         run: |
           cd frontend
-          npm ci
+          npm install
           npm run build
 
       - name: Set up .NET Core
