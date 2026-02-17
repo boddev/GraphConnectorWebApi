@@ -13,47 +13,90 @@ jobs:
   build:
     runs-on: windows-latest
     permissions:
-      contents: read #This is required for actions/checkout
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          cache: 'npm'
+          cache-dependency-path: './frontend/package.json'
+
+      - name: Install and Build React Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
       - name: Set up .NET Core
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.x'
+          dotnet-version: '8.x'
+
+      - name: Create wwwroot directory
+        run: |
+          if (!(Test-Path "ApiGraphActivator/wwwroot")) {
+            New-Item -ItemType Directory -Path "ApiGraphActivator/wwwroot" -Force
+          }
+        shell: pwsh
+
+      - name: Copy React build to wwwroot
+        run: |
+          Copy-Item -Path "frontend/build/*" -Destination "ApiGraphActivator/wwwroot/" -Recurse -Force
+        shell: pwsh
+
+      - name: Restore .NET dependencies
+        run: dotnet restore ApiGraphActivator/ApiGraphActivator.csproj
 
       - name: Build with dotnet
-        run: dotnet build --configuration Release
+        run: dotnet build ApiGraphActivator/ApiGraphActivator.csproj --configuration Release --no-restore
 
       - name: dotnet publish
-        run: dotnet publish -c Release -o "${{env.DOTNET_ROOT}}/myapp"
+        run: dotnet publish ApiGraphActivator/ApiGraphActivator.csproj -c Release -o "./publish"
 
       - name: Upload artifact for deployment job
         uses: actions/upload-artifact@v4
         with:
           name: .net-app
-          path: ${{env.DOTNET_ROOT}}/myapp
+          path: ./publish
 
   deploy:
     runs-on: windows-latest
     needs: build
     permissions:
-      id-token: write #This is required for requesting the JWT
-      contents: read #This is required for actions/checkout
+      id-token: write
+      contents: read
 
     steps:
       - name: Download artifact from build job
         uses: actions/download-artifact@v4
         with:
           name: .net-app
-      
+
       - name: Login to Azure
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZUREAPPSERVICE_CLIENTID_B780727441A541DB97C26A542D3C9F0D }}
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_9A67174C246541D3818D834327A93474 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_3FC6332A69724A68A5DDDC2E6A1E449E }}
+
+      - name: Configure Azure App Service Settings
+        run: |
+          az webapp config appsettings set --name edgar-gc-mcp --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --settings `
+            "ASPNETCORE_ENVIRONMENT=Production" `
+            "TableStorage=${{ secrets.TABLE_STORAGE }}" `
+            "CompanyTableName=trackedCompanies" `
+            "ProcessedTableName=processedFormsText" `
+            "BlobContainerName=${{ secrets.BLOB_CONTAINER_NAME }}" `
+            "APPLICATIONINSIGHTS_CONNECTION_STRING=${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}" `
+            "EmailAddress=${{ secrets.EMAIL_ADDRESS }}" `
+            "AzureAd__ClientId=${{ secrets.AZUREAD_CLIENT_ID }}" `
+            "AzureAd__ClientSecret=${{ secrets.AZUREAD_CLIENT_SECRET }}" `
+            "AzureAd__TenantId=${{ secrets.AZUREAD_TENANT_ID }}"
+        shell: pwsh
 
       - name: Deploy to Azure Web App
         id: deploy-to-webapp
@@ -62,4 +105,3 @@ jobs:
           app-name: 'edgar-gc-mcp'
           slot-name: 'Production'
           package: .
-          

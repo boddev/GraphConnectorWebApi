@@ -9,12 +9,12 @@
         "TableStorage": "",
         "CompanyTableName": "trackedCompanies",
         "ProcessedTableName": "processedFormsText",
-        "BlobContainerName" : "",
+        "BlobContainerName": "",
         "APPLICATIONINSIGHTS_CONNECTION_STRING": "",
-        "EmailAddress": "developer@example.com",
+        "EmailAddress": "",
         "AzureAd:ClientId": "",
         "AzureAd:ClientSecret": "",
-        "AzureAd:TenantId": "",
+        "AzureAd:TenantId": ""
       },
       "dotnetRunMessages": true,
       "applicationUrl": "http://localhost:5236"
