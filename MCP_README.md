@@ -12,6 +12,8 @@ The MCP Server provides the following tools:
 
 ### Tools Available
 
+#### Read Tools (requires `Mcp.Read` or `Mcp.ReadWrite` scope)
+
 1. **search_documents**
    - Search SEC documents by company, form type, or content
    - Parameters: `query` (required), `company` (optional), `formType` (optional), `dateRange` (optional)
@@ -22,11 +24,39 @@ The MCP Server provides the following tools:
 
 3. **analyze_document**
    - Analyze SEC document content using AI
-   - Parameters: `documentId` (required), `analysisType` (required)
+   - Parameters: `documentId` (required), `analysisType` (required: `financial`, `risk`, `governance`, `summary`)
 
 4. **list_companies**
-   - List all tracked companies
+   - List SEC-registered companies available for crawling from the EDGAR database
+   - Parameters: `search` (optional), `limit` (optional, default 50, max 200)
+
+5. **get_crawl_status**
+   - Get the current crawl status and progress
    - Parameters: none
+
+6. **get_last_crawl_info**
+   - Get information about the last crawl including timestamp and results
+   - Parameters: `company` (optional), `connectionId` (optional)
+
+7. **get_crawled_companies**
+   - Get detailed information about companies that have been successfully crawled
+   - Parameters: `connectionId` (optional)
+
+#### Write Tools (requires `Mcp.ReadWrite` scope)
+
+8. **start_crawl**
+   - Start a crawl operation for specified companies, queues a background task
+   - Parameters: `companies` (required, array of {cik, ticker, title}), `connectionId` (required)
+
+9. **manage_connections**
+   - Manage Microsoft Graph external connections (list, create, or delete)
+   - Parameters: `action` (required: `list`, `create`, `delete`), `connectionId` (for create/delete), `name` (for create), `description` (for create)
+
+## Authentication
+
+All HTTP endpoints (including `/mcp`) require a valid OAuth 2.0 Bearer token from Microsoft Entra ID. See [ENTRA_OAUTH_INTEGRATION_GUIDE.md](./ENTRA_OAUTH_INTEGRATION_GUIDE.md) for setup instructions.
+
+The stdio transport mode (`--mcp-stdio`) does not require HTTP authentication.
 
 ## How to Use
 
@@ -50,12 +80,13 @@ You can test the MCP server using the provided test client:
 dotnet run --project MCPTestClient.cs
 ```
 
-Or test manually with curl:
+Or test manually with curl (replace `<token>` with a valid Bearer token):
 
 ```powershell
 # Test initialization
-curl -X POST https://localhost:7000/mcp `
+curl -X POST https://localhost:7189/mcp `
   -H "Content-Type: application/json" `
+  -H "Authorization: Bearer <token>" `
   -d '{
     "jsonrpc": "2.0",
     "id": "1",
@@ -64,8 +95,9 @@ curl -X POST https://localhost:7000/mcp `
   }'
 
 # Test tools list
-curl -X POST https://localhost:7000/mcp `
+curl -X POST https://localhost:7189/mcp `
   -H "Content-Type: application/json" `
+  -H "Authorization: Bearer <token>" `
   -d '{
     "jsonrpc": "2.0",
     "id": "2", 
@@ -74,8 +106,9 @@ curl -X POST https://localhost:7000/mcp `
   }'
 
 # Test search documents
-curl -X POST https://localhost:7000/mcp `
+curl -X POST https://localhost:7189/mcp `
   -H "Content-Type: application/json" `
+  -H "Authorization: Bearer <token>" `
   -d '{
     "jsonrpc": "2.0",
     "id": "3",

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Security.Claims;
 
 namespace ApiGraphActivator.Services
 {
@@ -9,17 +10,63 @@ namespace ApiGraphActivator.Services
         private readonly CopilotChatService _copilotChatService;
         private readonly StorageConfigurationService _storageConfigService;
         private readonly DocumentSearchService _documentSearchService;
+        private readonly ExternalConnectionManagerService _connectionManager;
+        private readonly BackgroundTaskQueue _taskQueue;
+        private readonly IHttpClientFactory _httpClientFactory;
+        private readonly IHttpContextAccessor _httpContextAccessor;
+        private readonly bool _isStdioMode;
+
+        // Tools that require Mcp.ReadWrite scope
+        private static readonly HashSet<string> WriteTools = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "start_crawl",
+            "manage_connections"
+        };
 
         public MCPServerService(
             ILogger<MCPServerService> logger,
             CopilotChatService copilotChatService,
             StorageConfigurationService storageConfigService,
-            DocumentSearchService documentSearchService)
+            DocumentSearchService documentSearchService,
+            ExternalConnectionManagerService connectionManager,
+            BackgroundTaskQueue taskQueue,
+            IHttpClientFactory httpClientFactory,
+            IHttpContextAccessor httpContextAccessor)
         {
             _logger = logger;
             _copilotChatService = copilotChatService;
             _storageConfigService = storageConfigService;
             _documentSearchService = documentSearchService;
+            _connectionManager = connectionManager;
+            _taskQueue = taskQueue;
+            _httpClientFactory = httpClientFactory;
+            _httpContextAccessor = httpContextAccessor;
+            // Stdio mode has no HTTP context at all — detect once at construction
+            _isStdioMode = _httpContextAccessor.HttpContext == null;
+        }
+
+        private bool HasScope(string requiredScope)
+        {
+            // In stdio mode (local transport), there is no HTTP context — skip scope checks
+            if (_isStdioMode) return true;
+
+            var user = _httpContextAccessor.HttpContext?.User;
+            if (user?.Identity?.IsAuthenticated != true) return false;
+
+            var scopeClaim = user.FindFirst("scp") ?? user.FindFirst("http://schemas.microsoft.com/identity/claims/scope");
+            if (scopeClaim == null) return false;
+
+            var scopes = scopeClaim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return scopes.Contains(requiredScope, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private bool CanAccessTool(string toolName)
+        {
+            if (WriteTools.Contains(toolName))
+            {
+                return HasScope("Mcp.ReadWrite");
+            }
+            return HasScope("Mcp.Read") || HasScope("Mcp.ReadWrite");
         }
 
         private MCPResponse CreateErrorResponse(object? id, int code, string message)
@@ -189,7 +236,8 @@ namespace ApiGraphActivator.Services
                         type = "object",
                         properties = new
                         {
-                            company = new { type = "string", description = "Optional: Get last crawl info for specific company" }
+                            company = new { type = "string", description = "Optional: Get last crawl info for specific company" },
+                            connectionId = new { type = "string", description = "Optional: Target connection ID (defaults to all connections)" }
                         },
                         required = new string[] { }
                     }
@@ -206,11 +254,105 @@ namespace ApiGraphActivator.Services
                     inputSchema = new
                     {
                         type = "object",
-                        properties = new { },
+                        properties = new
+                        {
+                            connectionId = new { type = "string", description = "Optional: Target connection ID (defaults to all connections)" }
+                        },
                         required = new string[] { }
+                    }
+                },
+                new
+                {
+                    name = "list_companies",
+                    description = "List SEC-registered companies available for crawling. Returns company tickers, names, and CIK numbers from the SEC EDGAR database.",
+                    annotations = new
+                    {
+                        title = "List SEC Companies",
+                        readOnlyHint = true
+                    },
+                    inputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            search = new { type = "string", description = "Optional search filter by ticker or company name" },
+                            limit = new { type = "integer", description = "Maximum number of results to return (default 50, max 200)" }
+                        },
+                        required = new string[] { }
+                    }
+                },
+                new
+                {
+                    name = "start_crawl",
+                    description = "Start a crawl operation for specified companies. Queues a background task to extract SEC filings and index them into Microsoft Graph.",
+                    annotations = new
+                    {
+                        title = "Start SEC Document Crawl",
+                        readOnlyHint = false,
+                        destructiveHint = false,
+                        idempotentHint = true
+                    },
+                    inputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            companies = new
+                            {
+                                type = "array",
+                                description = "List of companies to crawl",
+                                items = new
+                                {
+                                    type = "object",
+                                    properties = new
+                                    {
+                                        cik = new { type = "integer", description = "SEC CIK number" },
+                                        ticker = new { type = "string", description = "Company ticker symbol" },
+                                        title = new { type = "string", description = "Company name" }
+                                    },
+                                    required = new[] { "cik", "ticker", "title" }
+                                }
+                            },
+                            connectionId = new { type = "string", description = "Target Graph external connection ID" }
+                        },
+                        required = new[] { "companies", "connectionId" }
+                    }
+                },
+                new
+                {
+                    name = "manage_connections",
+                    description = "Manage Microsoft Graph external connections. List existing connections, create new ones, or delete connections.",
+                    annotations = new
+                    {
+                        title = "Manage Graph Connections",
+                        readOnlyHint = false
+                    },
+                    inputSchema = new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            action = new { type = "string", description = "Action to perform: 'list', 'create', or 'delete'" },
+                            connectionId = new { type = "string", description = "Connection ID (required for create and delete)" },
+                            name = new { type = "string", description = "Connection name (required for create)" },
+                            description = new { type = "string", description = "Connection description (required for create)" }
+                        },
+                        required = new[] { "action" }
                     }
                 }
             };
+
+            // Filter tools based on caller's authorization scope
+            var hasWriteAccess = HasScope("Mcp.ReadWrite");
+            if (!hasWriteAccess)
+            {
+                tools = tools.Where(t =>
+                {
+                    var nameProperty = t.GetType().GetProperty("name");
+                    var toolName = nameProperty?.GetValue(t)?.ToString();
+                    return toolName == null || !WriteTools.Contains(toolName);
+                }).ToArray();
+            }
 
             return Task.FromResult(new MCPResponse
             {
@@ -243,6 +385,14 @@ namespace ApiGraphActivator.Services
                     Error = new MCPError { Code = -32602, Message = "Invalid tool call parameters" } 
                 };
             }
+
+            // Enforce tool-level authorization
+            if (!CanAccessTool(toolCall.Name))
+            {
+                _logger.LogWarning("Unauthorized tool call attempt: {ToolName}", toolCall.Name);
+                return CreateErrorResponse(request.Id, -32600, 
+                    $"Insufficient permissions to call tool '{toolCall.Name}'. The 'Mcp.ReadWrite' scope is required.");
+            }
             
             return toolCall.Name switch
             {
@@ -252,6 +402,9 @@ namespace ApiGraphActivator.Services
                 "get_crawl_status" => await HandleGetCrawlStatus(request.Id, toolCall.Arguments),
                 "get_last_crawl_info" => await HandleGetLastCrawlInfo(request.Id, toolCall.Arguments),
                 "get_crawled_companies" => await HandleGetCrawledCompanies(request.Id, toolCall.Arguments),
+                "list_companies" => await HandleListCompanies(request.Id, toolCall.Arguments),
+                "start_crawl" => await HandleStartCrawl(request.Id, toolCall.Arguments),
+                "manage_connections" => await HandleManageConnections(request.Id, toolCall.Arguments),
                 _ => new MCPResponse 
                 { 
                     Id = request.Id, 
@@ -480,8 +633,10 @@ namespace ApiGraphActivator.Services
             try
             {
                 var company = arguments.TryGetProperty("company", out var companyProp) ? companyProp.GetString() : null;
+                var connectionId = arguments.TryGetProperty("connectionId", out var connProp) ? connProp.GetString() : null;
                 
-                _logger.LogInformation("Getting last crawl info for company: {Company} using existing services", company ?? "all companies");
+                _logger.LogInformation("Getting last crawl info for company: {Company}, connection: {ConnectionId} using existing services", 
+                    company ?? "all companies", connectionId ?? "all connections");
                 
                 // Use your existing storage service to get real crawl information
                 var storageService = await _storageConfigService.GetStorageServiceAsync();
@@ -549,7 +704,7 @@ namespace ApiGraphActivator.Services
                     var overallMetrics = await storageService.GetCrawlMetricsAsync();
                     var unprocessedDocs = await storageService.GetUnprocessedAsync();
                     var recentErrors = await storageService.GetProcessingErrorsAsync();
-                    var config = await ConfigurationService.LoadCrawledCompaniesAsync();
+                    var config = await ConfigurationService.LoadCrawledCompaniesAsync(connectionId);
                     
                     var lastCrawlInfo = new
                     {
@@ -606,8 +761,10 @@ namespace ApiGraphActivator.Services
             {
                 _logger.LogInformation("Getting detailed crawled companies info using existing configuration service");
                 
+                var connectionId = arguments.TryGetProperty("connectionId", out var connProp) ? connProp.GetString() : null;
+                
                 // Use your existing ConfigurationService to get real crawled companies
-                var config = await ConfigurationService.LoadCrawledCompaniesAsync();
+                var config = await ConfigurationService.LoadCrawledCompaniesAsync(connectionId);
                 
                 if (config?.Companies == null || !config.Companies.Any())
                 {
@@ -708,6 +865,241 @@ namespace ApiGraphActivator.Services
                     Id = requestId, 
                     Error = new MCPError { Code = -32603, Message = $"Detailed crawled companies error: {ex.Message}" } 
                 };
+            }
+        }
+
+        private async Task<MCPResponse> HandleListCompanies(object? requestId, JsonElement arguments)
+        {
+            try
+            {
+                var search = arguments.TryGetProperty("search", out var searchProp) ? searchProp.GetString() : null;
+                var limit = arguments.TryGetProperty("limit", out var limitProp) ? limitProp.GetInt32() : 50;
+                limit = Math.Clamp(limit, 1, 200);
+
+                _logger.LogInformation("Listing companies with search: {Search}, limit: {Limit}", search, limit);
+
+                var httpClient = _httpClientFactory.CreateClient();
+                httpClient.DefaultRequestHeaders.Add("User-Agent",
+                    $"Microsoft/1.0 ({Environment.GetEnvironmentVariable("EmailAddress") ?? "unknown@example.com"})");
+
+                var response = await httpClient.GetStringAsync("https://www.sec.gov/files/company_tickers.json");
+                var tickers = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(response);
+
+                if (tickers == null)
+                {
+                    return CreateErrorResponse(requestId, -32603, "Failed to fetch company tickers from SEC");
+                }
+
+                var companies = tickers.Values.Select(v =>
+                {
+                    var cik = v.TryGetProperty("cik_str", out var cikProp) ? cikProp.GetInt32() : 0;
+                    var ticker = v.TryGetProperty("ticker", out var tickerProp) ? tickerProp.GetString() : null;
+                    var title = v.TryGetProperty("title", out var titleProp) ? titleProp.GetString() : null;
+                    return new { cik, ticker, title };
+                }).Where(c => c.cik > 0);
+
+                if (!string.IsNullOrEmpty(search))
+                {
+                    var searchLower = search.ToLowerInvariant();
+                    companies = companies.Where(c =>
+                        (c.ticker?.ToLowerInvariant().Contains(searchLower) == true) ||
+                        (c.title?.ToLowerInvariant().Contains(searchLower) == true));
+                }
+
+                var results = companies.Take(limit).ToList();
+
+                return CreateSuccessResponse(requestId, new
+                {
+                    content = new[]
+                    {
+                        new
+                        {
+                            type = "text",
+                            text = $"Found {results.Count} companies" +
+                                   (!string.IsNullOrEmpty(search) ? $" matching '{search}'" : "") +
+                                   $"\n\n{JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true })}"
+                        }
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error listing companies");
+                return CreateErrorResponse(requestId, -32603, $"Error listing companies: {ex.Message}");
+            }
+        }
+
+        private async Task<MCPResponse> HandleStartCrawl(object? requestId, JsonElement arguments)
+        {
+            try
+            {
+                var connectionId = arguments.TryGetProperty("connectionId", out var connProp) ? connProp.GetString() : null;
+
+                if (string.IsNullOrWhiteSpace(connectionId))
+                {
+                    return CreateErrorResponse(requestId, -32602, "connectionId is required");
+                }
+
+                if (!arguments.TryGetProperty("companies", out var companiesElement) ||
+                    companiesElement.ValueKind != JsonValueKind.Array ||
+                    companiesElement.GetArrayLength() == 0)
+                {
+                    return CreateErrorResponse(requestId, -32602, "At least one company is required in the 'companies' array");
+                }
+
+                var companies = new List<Company>();
+                foreach (var item in companiesElement.EnumerateArray())
+                {
+                    if (!item.TryGetProperty("cik", out var cikProp) ||
+                        !item.TryGetProperty("ticker", out var tickerProp) ||
+                        !item.TryGetProperty("title", out var titleProp))
+                    {
+                        return CreateErrorResponse(requestId, -32602, "Each company must have 'cik', 'ticker', and 'title' properties");
+                    }
+
+                    companies.Add(new Company
+                    {
+                        Cik = cikProp.GetInt32(),
+                        Ticker = tickerProp.GetString() ?? "",
+                        Title = titleProp.GetString() ?? ""
+                    });
+                }
+
+                _logger.LogInformation("MCP start_crawl: Queueing crawl for {Count} companies to connection {ConnectionId}",
+                    companies.Count, connectionId);
+
+                await ConfigurationService.SaveCrawledCompaniesAsync(companies, connectionId);
+
+                await _taskQueue.QueueBackgroundWorkItemAsync(async token =>
+                {
+                    _logger.LogInformation("MCP background crawl started for {Count} companies in connection {ConnectionId}",
+                        companies.Count, connectionId);
+                    await ContentService.LoadContentForCompanies(companies, connectionId);
+                    _logger.LogInformation("MCP background crawl completed for {Count} companies in connection {ConnectionId}",
+                        companies.Count, connectionId);
+                });
+
+                return CreateSuccessResponse(requestId, new
+                {
+                    content = new[]
+                    {
+                        new
+                        {
+                            type = "text",
+                            text = $"Crawl started successfully for {companies.Count} companies to connection '{connectionId}'. " +
+                                   $"Companies: {string.Join(", ", companies.Select(c => $"{c.Ticker} ({c.Title})"))}"
+                        }
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error starting crawl via MCP");
+                return CreateErrorResponse(requestId, -32603, $"Error starting crawl: {ex.Message}");
+            }
+        }
+
+        private async Task<MCPResponse> HandleManageConnections(object? requestId, JsonElement arguments)
+        {
+            try
+            {
+                var action = arguments.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : null;
+
+                if (string.IsNullOrWhiteSpace(action))
+                {
+                    return CreateErrorResponse(requestId, -32602, "action is required ('list', 'create', or 'delete')");
+                }
+
+                switch (action.ToLowerInvariant())
+                {
+                    case "list":
+                    {
+                        var connections = await _connectionManager.GetConnectionsAsync();
+                        return CreateSuccessResponse(requestId, new
+                        {
+                            content = new[]
+                            {
+                                new
+                                {
+                                    type = "text",
+                                    text = connections.Any()
+                                        ? $"Found {connections.Count} external connections:\n\n{JsonSerializer.Serialize(connections, new JsonSerializerOptions { WriteIndented = true })}"
+                                        : "No external connections found."
+                                }
+                            }
+                        });
+                    }
+
+                    case "create":
+                    {
+                        var connId = arguments.TryGetProperty("connectionId", out var cid) ? cid.GetString() : null;
+                        var connName = arguments.TryGetProperty("name", out var cn) ? cn.GetString() : null;
+                        var connDesc = arguments.TryGetProperty("description", out var cd) ? cd.GetString() : null;
+
+                        if (string.IsNullOrWhiteSpace(connId) || string.IsNullOrWhiteSpace(connName) || string.IsNullOrWhiteSpace(connDesc))
+                        {
+                            return CreateErrorResponse(requestId, -32602, "connectionId, name, and description are all required for 'create'");
+                        }
+
+                        var result = await _connectionManager.CreateConnectionAsync(new CreateExternalConnectionRequest
+                        {
+                            Id = connId,
+                            Name = connName,
+                            Description = connDesc
+                        });
+
+                        if (result.Success)
+                        {
+                            return CreateSuccessResponse(requestId, new
+                            {
+                                content = new[]
+                                {
+                                    new
+                                    {
+                                        type = "text",
+                                        text = $"Connection '{connId}' created successfully.\n\n{JsonSerializer.Serialize(result.Result, new JsonSerializerOptions { WriteIndented = true })}"
+                                    }
+                                }
+                            });
+                        }
+                        return CreateErrorResponse(requestId, -32603, $"Failed to create connection: {result.ErrorMessage}");
+                    }
+
+                    case "delete":
+                    {
+                        var deleteId = arguments.TryGetProperty("connectionId", out var did) ? did.GetString() : null;
+
+                        if (string.IsNullOrWhiteSpace(deleteId))
+                        {
+                            return CreateErrorResponse(requestId, -32602, "connectionId is required for 'delete'");
+                        }
+
+                        var result = await _connectionManager.DeleteConnectionAsync(deleteId);
+                        if (result.Success)
+                        {
+                            return CreateSuccessResponse(requestId, new
+                            {
+                                content = new[]
+                                {
+                                    new
+                                    {
+                                        type = "text",
+                                        text = $"Connection '{deleteId}' deleted successfully."
+                                    }
+                                }
+                            });
+                        }
+                        return CreateErrorResponse(requestId, -32603, $"Failed to delete connection: {result.ErrorMessage}");
+                    }
+
+                    default:
+                        return CreateErrorResponse(requestId, -32602, $"Unknown action '{action}'. Use 'list', 'create', or 'delete'.");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error managing connections via MCP");
+                return CreateErrorResponse(requestId, -32603, $"Error managing connections: {ex.Message}");
             }
         }
 

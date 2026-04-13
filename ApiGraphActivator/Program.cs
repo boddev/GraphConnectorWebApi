@@ -2,6 +2,9 @@ using ApiGraphActivator.Services;
 using Microsoft.Extensions.Logging.ApplicationInsights;
 using ApiGraphActivator;
 using System.Text.Json;
+using Microsoft.Identity.Web;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 
 // Check for MCP stdio mode early, before building web application
 if (args.Contains("--mcp-stdio"))
@@ -15,7 +18,40 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("oauth2", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.OAuth2,
+        Flows = new Microsoft.OpenApi.Models.OpenApiOAuthFlows
+        {
+            AuthorizationCode = new Microsoft.OpenApi.Models.OpenApiOAuthFlow
+            {
+                AuthorizationUrl = new Uri($"https://login.microsoftonline.com/{builder.Configuration["AzureAd:TenantId"]}/oauth2/v2.0/authorize"),
+                TokenUrl = new Uri($"https://login.microsoftonline.com/{builder.Configuration["AzureAd:TenantId"]}/oauth2/v2.0/token"),
+                Scopes = new Dictionary<string, string>
+                {
+                    { $"api://{builder.Configuration["AzureAd:ClientId"]}/Mcp.Read", "Read access to MCP tools" },
+                    { $"api://{builder.Configuration["AzureAd:ClientId"]}/Mcp.ReadWrite", "Read/write access to MCP tools" }
+                }
+            }
+        }
+    });
+    options.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+    {
+        {
+            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            {
+                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                {
+                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
+                    Id = "oauth2"
+                }
+            },
+            new[] { $"api://{builder.Configuration["AzureAd:ClientId"]}/Mcp.Read" }
+        }
+    });
+});
 
 // Configure JSON serialization options
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -36,6 +72,37 @@ builder.Services.AddCors(options =>
         });
 });
 
+// Add Microsoft Entra ID (Azure AD) authentication
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddMicrosoftIdentityWebApi(builder.Configuration.GetSection("AzureAd"));
+
+// Add authorization policies for MCP tool-level access control
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("McpRead", policy =>
+        policy.RequireAuthenticatedUser()
+              .RequireAssertion(context =>
+              {
+                  var scopeClaim = context.User.FindFirst("scp") ??
+                                   context.User.FindFirst("http://schemas.microsoft.com/identity/claims/scope");
+                  if (scopeClaim == null) return false;
+                  var scopes = scopeClaim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                  return scopes.Any(s => s.Equals("Mcp.Read", StringComparison.OrdinalIgnoreCase) ||
+                                         s.Equals("Mcp.ReadWrite", StringComparison.OrdinalIgnoreCase));
+              }))
+    .AddPolicy("McpReadWrite", policy =>
+        policy.RequireAuthenticatedUser()
+              .RequireAssertion(context =>
+              {
+                  var scopeClaim = context.User.FindFirst("scp") ??
+                                   context.User.FindFirst("http://schemas.microsoft.com/identity/claims/scope");
+                  if (scopeClaim == null) return false;
+                  var scopes = scopeClaim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                  return scopes.Any(s => s.Equals("Mcp.ReadWrite", StringComparison.OrdinalIgnoreCase));
+              }))
+    .SetFallbackPolicy(new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build());
+
 // Add Application Insights telemetry
 builder.Services.AddApplicationInsightsTelemetry(options =>
 {
@@ -54,6 +121,7 @@ builder.Services.AddLogging(loggingBuilder =>
 });
 
 // Register your services as non-static when possible
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddSingleton<LoggingService>();
 builder.Services.AddSingleton<StorageConfigurationService>();
 builder.Services.AddSingleton<BackgroundTaskQueue>(sp => new BackgroundTaskQueue(100));
@@ -79,13 +147,22 @@ var app = builder.Build();
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(options =>
+    {
+        options.OAuthClientId(builder.Configuration["SwaggerUI:ClientId"] ?? builder.Configuration["AzureAd:ClientId"]);
+        options.OAuthUsePkce();
+        options.OAuthScopeSeparator(" ");
+    });
 }
 
 app.UseHttpsRedirection();
 
 // Use CORS
 app.UseCors("AllowReactApp");
+
+// Add authentication and authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Serve static files from wwwroot (React app)
 app.UseStaticFiles();
@@ -133,12 +210,13 @@ app.MapPost("/grantPermissions", async (HttpContext context) =>
     await File.WriteAllTextAsync("tenantid.txt", tenantId);
 
     // Redirect the user to the specified URL
-    var clientId = "your-client-id"; // Replace with your actual client ID
+    var clientId = builder.Configuration["AzureAd:ClientId"] ?? throw new InvalidOperationException("AzureAd:ClientId is not configured");
     var redirectUrl = $"https://login.microsoftonline.com/organizations/adminconsent?client_id={clientId}";
     context.Response.Redirect(redirectUrl);
 })
 .WithName("StoreTenantId")
-.WithOpenApi();
+.WithOpenApi()
+.AllowAnonymous();
 
 app.MapPost("/provisionconnection", async (HttpContext context) =>
 {
@@ -390,14 +468,13 @@ app.MapPost("/full-crawl", async (HttpContext context, BackgroundTaskQueue taskQ
 .WithName("FullCrawl")
 .WithOpenApi();
 
-app.MapGet("/companies", async (HttpContext context) =>
+app.MapGet("/companies", async (HttpContext context, IHttpClientFactory httpClientFactory) =>
 {
     try
     {
         staticServiceLogger.LogInformation("Fetching company tickers from SEC");
         
-        // Use EdgarService's HttpClient which has proper User-Agent
-        var httpClient = new HttpClient();
+        var httpClient = httpClientFactory.CreateClient();
         httpClient.DefaultRequestHeaders.Add("User-Agent", $"Microsoft/1.0 ({Environment.GetEnvironmentVariable("EmailAddress") ?? "unknown@example.com"})");
         
         var response = await httpClient.GetStringAsync("https://www.sec.gov/files/company_tickers.json");
@@ -885,15 +962,17 @@ app.MapPost("/mcp", async (MCPRequest request, MCPServerService mcpService) =>
     return await mcpService.HandleRequest(request);
 })
 .WithName("MCPServer")
-.WithOpenApi();
+.WithOpenApi()
+.RequireAuthorization("McpRead");
 
-// Add MCP Server endpoint
+// Add MCP Discovery endpoint
 app.MapPost("/discover", async (MCPRequest request, MCPServerService mcpService) =>
 {
     return await mcpService.HandleRequest(request);
 })
 .WithName("MCPDiscover")
-.WithOpenApi();
+.WithOpenApi()
+.RequireAuthorization("McpRead");
 
 app.Run();
 return 0;
