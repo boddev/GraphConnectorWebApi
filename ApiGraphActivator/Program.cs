@@ -160,15 +160,15 @@ app.UseHttpsRedirection();
 // Use CORS
 app.UseCors("AllowReactApp");
 
-// Add authentication and authorization middleware
-app.UseAuthentication();
-app.UseAuthorization();
-
-// Serve static files from wwwroot (React app)
+// Serve static files from wwwroot (React app) - before auth so frontend loads without tokens
 app.UseStaticFiles();
 
 // Enable default files (serves index.html by default)
 app.UseDefaultFiles();
+
+// Add authentication and authorization middleware
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Create a factory-based logger that's appropriate for static classes
 var loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
@@ -196,7 +196,7 @@ catch (Exception ex)
 staticServiceLogger.LogInformation("Application started and Application Insights is configured.");
 
 // Configure SPA fallback routing - serve React app for unmatched routes
-app.MapFallbackToFile("index.html");
+app.MapFallbackToFile("index.html").AllowAnonymous();
 
 app.MapPost("/grantPermissions", async (HttpContext context) =>
 {
